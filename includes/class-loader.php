@@ -332,7 +332,30 @@ class Loader
 
         require_once BP_COMMERCE_PATH
             . 'admin/class-admin.php';
+
+            /*
+|--------------------------------------------------------------------------
+| Amrod Product Service
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to Amrod product data.
+|
+| Supports:
+| - Full product catalogue.
+| - Updated products.
+| - Products with branding.
+| - Updated products with branding.
+|
+| Depends on:
+| - Amrod_Api_Client
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'modules/suppliers/amrod/class-amrod-product-service.php';
     }
+
+    
 
 
     /**
