@@ -1,0 +1,6 @@
+{
+    "name": "blackprint/commerce",
+    "description": "BlackPrint Commerce WordPress Plugin",
+    "type": "wordpress-plugin",
+    "require": {}
+}
