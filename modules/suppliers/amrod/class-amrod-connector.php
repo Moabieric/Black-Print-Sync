@@ -18,6 +18,7 @@ defined('ABSPATH') || exit;
  * - Provide configuration.
  * - Provide authentication services.
  * - Provide the Amrod API client.
+ * - Provide the Amrod product service.
  * - Provide connector-level status information.
  * - Provide authentication testing.
  * - Provide API connectivity testing.
@@ -91,6 +92,41 @@ class Amrod_Connector
     private const CATEGORIES_ENDPOINT = '/api/v1/Categories/';
 
 
+    /**
+     * Full products endpoint.
+     *
+     * @var string
+     */
+    private const PRODUCTS_ENDPOINT = '/api/v1/Products/';
+
+
+    /**
+     * Updated products endpoint.
+     *
+     * @var string
+     */
+    private const UPDATED_PRODUCTS_ENDPOINT =
+        '/api/v1/Products/GetUpdatedProducts';
+
+
+    /**
+     * Full products with branding endpoint.
+     *
+     * @var string
+     */
+    private const PRODUCTS_WITH_BRANDING_ENDPOINT =
+        '/api/v1/Products/GetProductsAndBranding';
+
+
+    /**
+     * Updated products with branding endpoint.
+     *
+     * @var string
+     */
+    private const UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT =
+        '/api/v1/Products/GetUpdatedProductsAndBranding';
+
+
     /*
     |--------------------------------------------------------------------------
     | Amrod Services
@@ -120,6 +156,14 @@ class Amrod_Connector
      * @var Amrod_Api_Client
      */
     private Amrod_Api_Client $api_client;
+
+
+    /**
+     * Product service.
+     *
+     * @var Amrod_Product_Service
+     */
+    private Amrod_Product_Service $product_service;
 
 
     /**
@@ -158,6 +202,17 @@ class Amrod_Connector
         $this->api_client = new Amrod_Api_Client(
             $this->auth,
             $this->config
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Product Service
+        |--------------------------------------------------------------------------
+        */
+
+        $this->product_service = new Amrod_Product_Service(
+            $this->api_client
         );
     }
 
@@ -225,6 +280,20 @@ class Amrod_Connector
     public function get_api_client(): Amrod_Api_Client
     {
         return $this->api_client;
+    }
+
+
+    /**
+     * Get the Amrod product service.
+     *
+     * Provides controlled read-only access to Amrod
+     * product and product-with-branding endpoints.
+     *
+     * @return Amrod_Product_Service
+     */
+    public function get_product_service(): Amrod_Product_Service
+    {
+        return $this->product_service;
     }
 
 
@@ -474,8 +543,12 @@ class Amrod_Connector
     public function get_endpoint_registry(): array
     {
         return [
-            'brands'    => self::BRANDS_ENDPOINT,
-            'categories' => self::CATEGORIES_ENDPOINT,
+            'brands'                         => self::BRANDS_ENDPOINT,
+            'categories'                     => self::CATEGORIES_ENDPOINT,
+            'products'                       => self::PRODUCTS_ENDPOINT,
+            'updated_products'               => self::UPDATED_PRODUCTS_ENDPOINT,
+            'products_with_branding'         => self::PRODUCTS_WITH_BRANDING_ENDPOINT,
+            'updated_products_with_branding' => self::UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT,
         ];
     }
 
