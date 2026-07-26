@@ -144,6 +144,29 @@ class Admin
                 'amrod_categories',
             ]
         );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Amrod Products
+        |--------------------------------------------------------------------------
+        |
+        | Provides read-only access to product data returned
+        | by the Amrod Vendor API.
+        |
+        */
+
+        add_submenu_page(
+            'blackprint-commerce',
+            'Amrod Products',
+            'Amrod Products',
+            'manage_woocommerce',
+            'blackprint-amrod-products',
+            [
+                $this,
+                'amrod_products',
+            ]
+        );
     }
 
 
@@ -276,5 +299,103 @@ class Admin
 
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-categories.php';
+    }
+
+
+    /**
+     * Render the Amrod Products Explorer page.
+     *
+     * This page is read-only.
+     *
+     * No WooCommerce products are created or modified.
+     *
+     * @return void
+     */
+    public function amrod_products(): void
+    {
+        $connector = new \BlackPrint\Commerce\Suppliers\Amrod\Amrod_Connector();
+
+        $product_service = $connector->get_product_service();
+
+        $result = [];
+
+        $error = '';
+
+        $action = isset($_GET['bp_amrod_product_action'])
+            ? sanitize_key(
+                wp_unslash(
+                    $_GET['bp_amrod_product_action']
+                )
+            )
+            : '';
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Execute Read-Only Product API Test
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            isset($_GET['bp_amrod_products_test'])
+            && check_admin_referer(
+                'bp_amrod_products_test'
+            )
+        ) {
+            try {
+
+                switch ($action) {
+
+                    case 'products':
+
+                        $result = $product_service->get_products();
+
+                        break;
+
+
+                    case 'updated_products':
+
+                        $result = $product_service->get_updated_products();
+
+                        break;
+
+
+                    case 'products_with_branding':
+
+                        $result = $product_service->get_products_with_branding();
+
+                        break;
+
+
+                    case 'updated_products_with_branding':
+
+                        $result = $product_service->get_updated_products_with_branding();
+
+                        break;
+
+
+                    default:
+
+                        $error = 'Invalid Amrod product API action.';
+
+                        break;
+                }
+
+            } catch (
+                \Throwable $exception
+            ) {
+                $error = $exception->getMessage();
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Render View
+        |--------------------------------------------------------------------------
+        */
+
+        include BP_COMMERCE_PATH
+            . 'admin/views/amrod-products.php';
     }
 }
