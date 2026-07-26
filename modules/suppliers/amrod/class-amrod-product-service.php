@@ -44,7 +44,7 @@ class Amrod_Product_Service
      * @var string
      */
     private const UPDATED_PRODUCTS_ENDPOINT =
-        '/api/v1/Products/GetUpdated';
+        '/api/v1/Products/GetUpdatedProducts';
 
 
     /**
