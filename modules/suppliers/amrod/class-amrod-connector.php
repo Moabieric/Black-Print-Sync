@@ -167,6 +167,14 @@ class Amrod_Connector
 
 
     /**
+ * Stock service.
+ *
+ * @var Amrod_Stock_Service
+ */
+private Amrod_Stock_Service $stock_service;
+
+
+    /**
      * Constructor.
      *
      * Builds the Amrod connector dependency chain.
@@ -205,15 +213,27 @@ class Amrod_Connector
         );
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Product Service
-        |--------------------------------------------------------------------------
-        */
+       /*
+|--------------------------------------------------------------------------
+| Product Service
+|--------------------------------------------------------------------------
+*/
 
-        $this->product_service = new Amrod_Product_Service(
-            $this->api_client
-        );
+$this->product_service = new Amrod_Product_Service(
+    $this->api_client
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| Stock Service
+|--------------------------------------------------------------------------
+*/
+
+$this->stock_service = new Amrod_Stock_Service(
+    $this->api_client
+);
+
     }
 
 
@@ -295,6 +315,19 @@ class Amrod_Connector
     {
         return $this->product_service;
     }
+
+    /**
+ * Get the Amrod stock service.
+ *
+ * Provides controlled read-only access to Amrod
+ * stock and updated stock endpoints.
+ *
+ * @return Amrod_Stock_Service
+ */
+public function get_stock_service(): Amrod_Stock_Service
+{
+    return $this->stock_service;
+}
 
 
     /**
