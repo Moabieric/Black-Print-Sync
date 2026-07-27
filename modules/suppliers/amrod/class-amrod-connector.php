@@ -143,6 +143,22 @@ class Amrod_Connector
     private const UPDATED_STOCK_ENDPOINT =
         '/api/v1/Stock/GetUpdated';
 
+        /**
+ * Full prices endpoint.
+ *
+ * @var string
+ */
+private const PRICES_ENDPOINT = '/api/v1/Prices/';
+
+
+/**
+ * Updated prices endpoint.
+ *
+ * @var string
+ */
+private const UPDATED_PRICES_ENDPOINT =
+    '/api/v1/Prices/GetUpdated';
+
 
     /*
     |--------------------------------------------------------------------------
@@ -189,6 +205,14 @@ class Amrod_Connector
      * @var Amrod_Stock_Service
      */
     private Amrod_Stock_Service $stock_service;
+
+
+    /**
+ * Price service.
+ *
+ * @var Amrod_Price_Service
+ */
+private Amrod_Price_Service $price_service;
 
 
     /**
@@ -251,7 +275,17 @@ class Amrod_Connector
             $this->api_client
         );
 
-    }
+        /*
+        |--------------------------------------------------------------------------
+        | Price Service
+        |--------------------------------------------------------------------------
+        */
+
+        $this->price_service = new Amrod_Price_Service(
+            $this->api_client
+        );
+
+        }
 
 
     /**
@@ -345,6 +379,19 @@ class Amrod_Connector
     {
         return $this->stock_service;
     }
+
+    /**
+ * Get the Amrod price service.
+ *
+ * Provides controlled read-only access to Amrod
+ * price and updated price endpoints.
+ *
+ * @return Amrod_Price_Service
+ */
+public function get_price_service(): Amrod_Price_Service
+{
+    return $this->price_service;
+}
 
 
     /**
@@ -601,6 +648,8 @@ class Amrod_Connector
             'updated_products_with_branding' => self::UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT,
             'stock'                           => self::STOCK_ENDPOINT,
             'updated_stock'                  => self::UPDATED_STOCK_ENDPOINT,
+            'prices'                         => self::PRICES_ENDPOINT,
+            'updated_prices'                => self::UPDATED_PRICES_ENDPOINT,
         ];
     }
 

@@ -323,6 +323,26 @@ class Loader
             . 'modules/suppliers/amrod/class-amrod-stock-service.php';
 
 
+            /*
+|--------------------------------------------------------------------------
+| Amrod Price Service
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to Amrod price data.
+|
+| Supports:
+| - Full price catalogue.
+| - Updated prices.
+|
+| Depends on:
+| - Amrod_Api_Client
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'modules/suppliers/amrod/class-amrod-price-service.php';
+
+
         /*
         |--------------------------------------------------------------------------
         | Amrod Connector
