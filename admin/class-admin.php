@@ -167,6 +167,28 @@ class Admin
                 'amrod_products',
             ]
         );
+
+        /*
+|--------------------------------------------------------------------------
+| Amrod Stock
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to stock data returned
+| by the Amrod Vendor API.
+|
+*/
+
+add_submenu_page(
+    'blackprint-commerce',
+    'Amrod Stock',
+    'Amrod Stock',
+    'manage_woocommerce',
+    'blackprint-amrod-stock',
+    [
+        $this,
+        'amrod_stock',
+    ]
+);
     }
 
 
@@ -398,4 +420,95 @@ class Admin
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-products.php';
     }
+
+    /**
+ * Render the Amrod Stock Explorer page.
+ *
+ * This page is read-only.
+ *
+ * No WooCommerce products or stock values are
+ * created or modified.
+ *
+ * @return void
+ */
+public function amrod_stock(): void
+{
+    $connector = new \BlackPrint\Commerce\Suppliers\Amrod\Amrod_Connector();
+
+    $stock_service = $connector->get_stock_service();
+
+    $result = [];
+
+    $error = '';
+
+    $action = isset($_GET['bp_amrod_stock_action'])
+        ? sanitize_key(
+            wp_unslash(
+                $_GET['bp_amrod_stock_action']
+            )
+        )
+        : '';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Execute Read-Only Stock API Test
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        isset($_GET['bp_amrod_stock_test'])
+        && check_admin_referer(
+            'bp_amrod_stock_test'
+        )
+    ) {
+
+        try {
+
+            switch ($action) {
+
+                case 'stock':
+
+                    $result = $stock_service->get_stock();
+
+                    break;
+
+
+                case 'updated_stock':
+
+                    $result = $stock_service->get_updated_stock();
+
+                    break;
+
+
+                default:
+
+                    $error =
+                        'Invalid Amrod stock API action.';
+
+                    break;
+
+            }
+
+        } catch (
+            \Throwable $exception
+        ) {
+
+            $error =
+                $exception->getMessage();
+
+        }
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Render View
+    |--------------------------------------------------------------------------
+    */
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/amrod-stock.php';
+}
 }
