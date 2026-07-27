@@ -160,6 +160,24 @@ private const UPDATED_PRICES_ENDPOINT =
     '/api/v1/Prices/GetUpdated';
 
 
+    /**
+ * Full branding departments endpoint.
+ *
+ * @var string
+ */
+private const BRANDING_DEPARTMENTS_ENDPOINT =
+    '/api/v1/BrandingDepartments/';
+
+
+/**
+ * Updated branding departments endpoint.
+ *
+ * @var string
+ */
+private const UPDATED_BRANDING_DEPARTMENTS_ENDPOINT =
+    '/api/v1/BrandingDepartments/GetUpdated';
+
+
     /*
     |--------------------------------------------------------------------------
     | Amrod Services
@@ -213,6 +231,13 @@ private const UPDATED_PRICES_ENDPOINT =
  * @var Amrod_Price_Service
  */
 private Amrod_Price_Service $price_service;
+
+/**
+ * Branding department service.
+ *
+ * @var Amrod_Branding_Department_Service
+ */
+private Amrod_Branding_Department_Service $branding_department_service;
 
 
     /**
@@ -284,6 +309,17 @@ private Amrod_Price_Service $price_service;
         $this->price_service = new Amrod_Price_Service(
             $this->api_client
         );
+
+        /*
+|--------------------------------------------------------------------------
+| Branding Department Service
+|--------------------------------------------------------------------------
+*/
+
+$this->branding_department_service =
+    new Amrod_Branding_Department_Service(
+        $this->api_client
+    );
 
         }
 
@@ -391,6 +427,21 @@ private Amrod_Price_Service $price_service;
 public function get_price_service(): Amrod_Price_Service
 {
     return $this->price_service;
+}
+
+/**
+ * Get the Amrod branding department service.
+ *
+ * Provides controlled read-only access to Amrod
+ * branding department and updated branding department
+ * endpoints.
+ *
+ * @return Amrod_Branding_Department_Service
+ */
+public function get_branding_department_service():
+    Amrod_Branding_Department_Service
+{
+    return $this->branding_department_service;
 }
 
 
@@ -640,17 +691,17 @@ public function get_price_service(): Amrod_Price_Service
     public function get_endpoint_registry(): array
     {
                 return [
-            'brands'                         => self::BRANDS_ENDPOINT,
-            'categories'                     => self::CATEGORIES_ENDPOINT,
-            'products'                       => self::PRODUCTS_ENDPOINT,
-            'updated_products'               => self::UPDATED_PRODUCTS_ENDPOINT,
-            'products_with_branding'         => self::PRODUCTS_WITH_BRANDING_ENDPOINT,
-            'updated_products_with_branding' => self::UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT,
-            'stock'                           => self::STOCK_ENDPOINT,
-            'updated_stock'                  => self::UPDATED_STOCK_ENDPOINT,
-            'prices'                         => self::PRICES_ENDPOINT,
-            'updated_prices'                => self::UPDATED_PRICES_ENDPOINT,
-        ];
+    'brands'                         => self::BRANDS_ENDPOINT,
+    'categories'                     => self::CATEGORIES_ENDPOINT,
+    'products'                       => self::PRODUCTS_ENDPOINT,
+    'updated_products'               => self::UPDATED_PRODUCTS_ENDPOINT,
+    'products_with_branding'         => self::PRODUCTS_WITH_BRANDING_ENDPOINT,
+    'updated_products_with_branding' => self::UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT,
+    'prices'                         => self::PRICES_ENDPOINT,
+    'updated_prices'                 => self::UPDATED_PRICES_ENDPOINT,
+    'branding_departments'           => self::BRANDING_DEPARTMENTS_ENDPOINT,
+    'updated_branding_departments'   => self::UPDATED_BRANDING_DEPARTMENTS_ENDPOINT,
+];
     }
 
 

@@ -342,6 +342,25 @@ class Loader
 require_once BP_COMMERCE_PATH
     . 'modules/suppliers/amrod/class-amrod-price-service.php';
 
+    /*
+|--------------------------------------------------------------------------
+| Amrod Branding Department Service
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to Amrod branding department data.
+|
+| Supports:
+| - Full branding department catalogue.
+| - Updated branding departments.
+|
+| Depends on:
+| - Amrod_Api_Client
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'modules/suppliers/amrod/class-amrod-branding-department-service.php';
+
 
         /*
         |--------------------------------------------------------------------------
