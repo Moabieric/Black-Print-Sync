@@ -189,6 +189,28 @@ add_submenu_page(
         'amrod_stock',
     ]
 );
+
+/*
+|--------------------------------------------------------------------------
+| Amrod Prices
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to price data returned
+| by the Amrod Vendor API.
+|
+*/
+
+add_submenu_page(
+    'blackprint-commerce',
+    'Amrod Prices',
+    'Amrod Prices',
+    'manage_woocommerce',
+    'blackprint-amrod-prices',
+    [
+        $this,
+        'amrod_prices',
+    ]
+);
     }
 
 
@@ -511,4 +533,97 @@ public function amrod_stock(): void
     include BP_COMMERCE_PATH
         . 'admin/views/amrod-stock.php';
 }
+
+/**
+ * Render the Amrod Prices Explorer page.
+ *
+ * This page is read-only.
+ *
+ * No WooCommerce products or prices are
+ * created or modified.
+ *
+ * @return void
+ */
+public function amrod_prices(): void
+{
+    $connector = new \BlackPrint\Commerce\Suppliers\Amrod\Amrod_Connector();
+
+    $price_service = $connector->get_price_service();
+
+    $result = [];
+
+    $error = '';
+
+    $action = isset($_GET['bp_amrod_prices_action'])
+        ? sanitize_key(
+            wp_unslash(
+                $_GET['bp_amrod_prices_action']
+            )
+        )
+        : '';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Execute Read-Only Price API Test
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        isset($_GET['bp_amrod_prices_test'])
+        && check_admin_referer(
+            'bp_amrod_prices_test'
+        )
+    ) {
+
+        try {
+
+            switch ($action) {
+
+                case 'prices':
+
+                    $result = $price_service->get_prices();
+
+                    break;
+
+
+                case 'updated_prices':
+
+                    $result = $price_service->get_updated_prices();
+
+                    break;
+
+
+                default:
+
+                    $error =
+                        'Invalid Amrod price API action.';
+
+                    break;
+
+            }
+
+        } catch (
+            \Throwable $exception
+        ) {
+
+            $error =
+                $exception->getMessage();
+
+        }
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Render View
+    |--------------------------------------------------------------------------
+    */
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/amrod-prices.php';
+}
+
+
 }
