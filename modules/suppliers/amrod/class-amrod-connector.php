@@ -126,6 +126,23 @@ class Amrod_Connector
     private const UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT =
         '/api/v1/Products/GetUpdatedProductsAndBranding';
 
+            /**
+     * Full stock endpoint.
+     *
+     * @var string
+     */
+    private const STOCK_ENDPOINT =
+        '/api/v1/Stock/';
+
+
+    /**
+     * Updated stock endpoint.
+     *
+     * @var string
+     */
+    private const UPDATED_STOCK_ENDPOINT =
+        '/api/v1/Stock/GetUpdated';
+
 
     /*
     |--------------------------------------------------------------------------
@@ -166,12 +183,12 @@ class Amrod_Connector
     private Amrod_Product_Service $product_service;
 
 
-    /**
- * Stock service.
- *
- * @var Amrod_Stock_Service
- */
-private Amrod_Stock_Service $stock_service;
+       /**
+     * Stock service.
+     *
+     * @var Amrod_Stock_Service
+     */
+    private Amrod_Stock_Service $stock_service;
 
 
     /**
@@ -213,26 +230,26 @@ private Amrod_Stock_Service $stock_service;
         );
 
 
-       /*
-|--------------------------------------------------------------------------
-| Product Service
-|--------------------------------------------------------------------------
-*/
+              /*
+        |--------------------------------------------------------------------------
+        | Product Service
+        |--------------------------------------------------------------------------
+        */
 
-$this->product_service = new Amrod_Product_Service(
-    $this->api_client
-);
+        $this->product_service = new Amrod_Product_Service(
+            $this->api_client
+        );
 
 
-/*
-|--------------------------------------------------------------------------
-| Stock Service
-|--------------------------------------------------------------------------
-*/
+        /*
+        |--------------------------------------------------------------------------
+        | Stock Service
+        |--------------------------------------------------------------------------
+        */
 
-$this->stock_service = new Amrod_Stock_Service(
-    $this->api_client
-);
+        $this->stock_service = new Amrod_Stock_Service(
+            $this->api_client
+        );
 
     }
 
@@ -316,18 +333,18 @@ $this->stock_service = new Amrod_Stock_Service(
         return $this->product_service;
     }
 
-    /**
- * Get the Amrod stock service.
- *
- * Provides controlled read-only access to Amrod
- * stock and updated stock endpoints.
- *
- * @return Amrod_Stock_Service
- */
-public function get_stock_service(): Amrod_Stock_Service
-{
-    return $this->stock_service;
-}
+        /**
+     * Get the Amrod stock service.
+     *
+     * Provides controlled read-only access to Amrod
+     * stock and updated stock endpoints.
+     *
+     * @return Amrod_Stock_Service
+     */
+    public function get_stock_service(): Amrod_Stock_Service
+    {
+        return $this->stock_service;
+    }
 
 
     /**
@@ -575,13 +592,15 @@ public function get_stock_service(): Amrod_Stock_Service
      */
     public function get_endpoint_registry(): array
     {
-        return [
+                return [
             'brands'                         => self::BRANDS_ENDPOINT,
             'categories'                     => self::CATEGORIES_ENDPOINT,
             'products'                       => self::PRODUCTS_ENDPOINT,
             'updated_products'               => self::UPDATED_PRODUCTS_ENDPOINT,
             'products_with_branding'         => self::PRODUCTS_WITH_BRANDING_ENDPOINT,
             'updated_products_with_branding' => self::UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT,
+            'stock'                           => self::STOCK_ENDPOINT,
+            'updated_stock'                  => self::UPDATED_STOCK_ENDPOINT,
         ];
     }
 

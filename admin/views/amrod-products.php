@@ -3,12 +3,21 @@
 defined('ABSPATH') || exit;
 
 /**
- * Amrod Products Explorer.
+ * Amrod Products & Stock Explorer.
  *
- * Read-only interface for testing and inspecting
- * product data returned by the Amrod Vendor API.
+ * Read-only diagnostic interface for inspecting raw
+ * product and stock data returned by the Amrod Vendor API.
  *
- * No WooCommerce products are created or modified.
+ * IMPORTANT:
+ * This view does not create or modify WooCommerce products.
+ *
+ * Available data:
+ * - Full products
+ * - Updated products
+ * - Products with branding
+ * - Updated products with branding
+ * - Full stock
+ * - Updated stock
  *
  * @package BlackPrint\Commerce
  */
@@ -17,118 +26,209 @@ defined('ABSPATH') || exit;
 
 <div class="wrap">
 
-    <h1>Amrod Products</h1>
+    <h1>Amrod Products & Stock</h1>
 
     <p>
-        Read-only access to product data returned by the
-        Amrod Vendor API.
-    </p>
-
-    <p>
-        <strong>Important:</strong>
-        This explorer does not create, update, or modify
-        WooCommerce products.
+        Read-only access to raw product and stock data
+        returned by the Amrod Vendor API.
     </p>
 
 
     <?php if (!empty($error)) : ?>
 
-        <div class="notice notice-error">
+        <div class="notice notice-error is-dismissible">
+
             <p>
                 <strong>Amrod API Error:</strong>
                 <?php echo esc_html($error); ?>
             </p>
+
         </div>
 
     <?php endif; ?>
 
 
-    <hr>
+    <div class="card" style="max-width: 900px;">
+
+        <h2>Product Data</h2>
+
+        <p>
+            Test the Amrod product endpoints below.
+            These actions only retrieve data and do not modify WooCommerce.
+        </p>
 
 
-    <h2>Product API Tests</h2>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
 
-    <p>
-        Select an endpoint below to perform a read-only
-        request against the Amrod Vendor API.
-    </p>
-
-
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin:20px 0;">
-
-        <?php
-
-        $actions = [
-            'products' => [
-                'label' => 'Get All Products',
-            ],
-            'updated_products' => [
-                'label' => 'Get Updated Products',
-            ],
-            'products_with_branding' => [
-                'label' => 'Get Products + Branding',
-            ],
-            'updated_products_with_branding' => [
-                'label' => 'Get Updated Products + Branding',
-            ],
-        ];
-
-        foreach ($actions as $action_key => $action_data) :
-
-            $url = wp_nonce_url(
-                add_query_arg(
-                    [
-                        'page' => 'blackprint-amrod-products',
-                        'bp_amrod_products_test' => '1',
-                        'bp_amrod_product_action' => $action_key,
-                    ],
-                    admin_url('admin.php')
+            <?php
+            $products_url = wp_nonce_url(
+                admin_url(
+                    'admin.php?page=blackprint-amrod-products'
+                    . '&bp_amrod_products_test=1'
+                    . '&bp_amrod_product_action=products'
                 ),
                 'bp_amrod_products_test'
             );
-
             ?>
 
             <a
-                href="<?php echo esc_url($url); ?>"
+                href="<?php echo esc_url($products_url); ?>"
                 class="button button-primary"
             >
-                <?php echo esc_html($action_data['label']); ?>
+                Get All Products
             </a>
 
-        <?php endforeach; ?>
+
+            <?php
+            $updated_products_url = wp_nonce_url(
+                admin_url(
+                    'admin.php?page=blackprint-amrod-products'
+                    . '&bp_amrod_products_test=1'
+                    . '&bp_amrod_product_action=updated_products'
+                ),
+                'bp_amrod_products_test'
+            );
+            ?>
+
+            <a
+                href="<?php echo esc_url($updated_products_url); ?>"
+                class="button"
+            >
+                Get Updated Products
+            </a>
+
+
+            <?php
+            $products_branding_url = wp_nonce_url(
+                admin_url(
+                    'admin.php?page=blackprint-amrod-products'
+                    . '&bp_amrod_products_test=1'
+                    . '&bp_amrod_product_action=products_with_branding'
+                ),
+                'bp_amrod_products_test'
+            );
+            ?>
+
+            <a
+                href="<?php echo esc_url($products_branding_url); ?>"
+                class="button"
+            >
+                Get Products + Branding
+            </a>
+
+
+            <?php
+            $updated_products_branding_url = wp_nonce_url(
+                admin_url(
+                    'admin.php?page=blackprint-amrod-products'
+                    . '&bp_amrod_products_test=1'
+                    . '&bp_amrod_product_action=updated_products_with_branding'
+                ),
+                'bp_amrod_products_test'
+            );
+            ?>
+
+            <a
+                href="<?php echo esc_url($updated_products_branding_url); ?>"
+                class="button"
+            >
+                Get Updated Products + Branding
+            </a>
+
+        </div>
+
+    </div>
+
+
+    <div class="card" style="max-width: 900px; margin-top: 20px;">
+
+        <h2>Stock Data</h2>
+
+        <p>
+            Test the Amrod stock endpoints below.
+            These actions only retrieve stock data and do not modify WooCommerce.
+        </p>
+
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
+
+            <?php
+            $stock_url = wp_nonce_url(
+                admin_url(
+                    'admin.php?page=blackprint-amrod-products'
+                    . '&bp_amrod_products_test=1'
+                    . '&bp_amrod_product_action=stock'
+                ),
+                'bp_amrod_products_test'
+            );
+            ?>
+
+            <a
+                href="<?php echo esc_url($stock_url); ?>"
+                class="button button-primary"
+            >
+                Get All Stock
+            </a>
+
+
+            <?php
+            $updated_stock_url = wp_nonce_url(
+                admin_url(
+                    'admin.php?page=blackprint-amrod-products'
+                    . '&bp_amrod_products_test=1'
+                    . '&bp_amrod_product_action=updated_stock'
+                ),
+                'bp_amrod_products_test'
+            );
+            ?>
+
+            <a
+                href="<?php echo esc_url($updated_stock_url); ?>"
+                class="button"
+            >
+                Get Updated Stock
+            </a>
+
+        </div>
 
     </div>
 
 
     <?php if (!empty($result)) : ?>
 
-        <hr>
+        <div class="card" style="max-width: 1200px; margin-top: 20px;">
 
-        <h2>API Response</h2>
+            <h2>API Response</h2>
 
-        <p>
-            The Amrod API returned a response successfully.
-        </p>
+            <p>
+                The following data was returned directly from the
+                Amrod Vendor API.
+            </p>
 
-        <textarea
-            readonly
-            style="
-                width:100%;
-                min-height:500px;
-                font-family:monospace;
-                font-size:13px;
-            "
-        ><?php
 
-        echo esc_textarea(
-            wp_json_encode(
-                $result,
-                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
-            )
-        );
+            <textarea
+                readonly
+                style="
+                    width: 100%;
+                    min-height: 500px;
+                    font-family: monospace;
+                    font-size: 13px;
+                    line-height: 1.5;
+                "
+            ><?php
 
-        ?></textarea>
+            echo esc_textarea(
+                wp_json_encode(
+                    $result,
+                    JSON_PRETTY_PRINT |
+                    JSON_UNESCAPED_SLASHES |
+                    JSON_UNESCAPED_UNICODE
+                )
+            );
+
+            ?></textarea>
+
+        </div>
 
     <?php endif; ?>
 
