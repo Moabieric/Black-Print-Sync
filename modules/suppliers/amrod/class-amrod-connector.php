@@ -429,20 +429,6 @@ public function get_price_service(): Amrod_Price_Service
     return $this->price_service;
 }
 
-/**
- * Get the Amrod branding department service.
- *
- * Provides controlled read-only access to Amrod
- * branding department and updated branding department
- * endpoints.
- *
- * @return Amrod_Branding_Department_Service
- */
-public function get_branding_department_service():
-    Amrod_Branding_Department_Service
-{
-    return $this->branding_department_service;
-}
 
 
 /**
