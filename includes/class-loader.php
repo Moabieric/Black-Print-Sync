@@ -361,6 +361,25 @@ require_once BP_COMMERCE_PATH
 require_once BP_COMMERCE_PATH
     . 'modules/suppliers/amrod/class-amrod-branding-department-service.php';
 
+    /*
+|--------------------------------------------------------------------------
+| Amrod Inclusive Branding Service
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to Amrod inclusive branding data.
+|
+| Supports:
+| - Full inclusive branding catalogue.
+| - Updated inclusive branding data.
+|
+| Depends on:
+| - Amrod_Api_Client
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'modules/suppliers/amrod/class-amrod-inclusive-branding-service.php';
+
 
         /*
         |--------------------------------------------------------------------------

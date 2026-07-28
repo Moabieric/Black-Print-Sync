@@ -178,6 +178,26 @@ private const UPDATED_BRANDING_DEPARTMENTS_ENDPOINT =
     '/api/v1/BrandingDepartments/GetUpdated';
 
 
+    /**
+ * Full inclusive branding endpoint.
+ *
+ * @var string
+ */
+private const INCLUSIVE_BRANDING_ENDPOINT =
+    '/api/v1/InclusiveBrandings/';
+
+
+/**
+ * Updated inclusive branding endpoint.
+ *
+ * @var string
+ */
+private const UPDATED_INCLUSIVE_BRANDING_ENDPOINT =
+    '/api/v1/InclusiveBrandings/GetUpdated';
+
+
+
+
     /*
     |--------------------------------------------------------------------------
     | Amrod Services
@@ -238,6 +258,13 @@ private Amrod_Price_Service $price_service;
  * @var Amrod_Branding_Department_Service
  */
 private Amrod_Branding_Department_Service $branding_department_service;
+
+/**
+ * Inclusive branding service.
+ *
+ * @var Amrod_Inclusive_Branding_Service
+ */
+private Amrod_Inclusive_Branding_Service $inclusive_branding_service;
 
 
     /**
@@ -318,6 +345,17 @@ private Amrod_Branding_Department_Service $branding_department_service;
 
 $this->branding_department_service =
     new Amrod_Branding_Department_Service(
+        $this->api_client
+    );
+
+    /*
+|--------------------------------------------------------------------------
+| Inclusive Branding Service
+|--------------------------------------------------------------------------
+*/
+
+$this->inclusive_branding_service =
+    new Amrod_Inclusive_Branding_Service(
         $this->api_client
     );
 
@@ -444,6 +482,21 @@ public function get_branding_department_service():
     Amrod_Branding_Department_Service
 {
     return $this->branding_department_service;
+}
+
+/**
+ * Get the Amrod inclusive branding service.
+ *
+ * Provides controlled read-only access to Amrod
+ * inclusive branding and updated inclusive branding
+ * endpoints.
+ *
+ * @return Amrod_Inclusive_Branding_Service
+ */
+public function get_inclusive_branding_service():
+    Amrod_Inclusive_Branding_Service
+{
+    return $this->inclusive_branding_service;
 }
 
     /**
@@ -702,6 +755,8 @@ public function get_branding_department_service():
     'updated_prices'                 => self::UPDATED_PRICES_ENDPOINT,
     'branding_departments'           => self::BRANDING_DEPARTMENTS_ENDPOINT,
     'updated_branding_departments'   => self::UPDATED_BRANDING_DEPARTMENTS_ENDPOINT,
+    'inclusive_branding'            => self::INCLUSIVE_BRANDING_ENDPOINT,
+'updated_inclusive_branding'        => self::UPDATED_INCLUSIVE_BRANDING_ENDPOINT,
 ];
     }
 
