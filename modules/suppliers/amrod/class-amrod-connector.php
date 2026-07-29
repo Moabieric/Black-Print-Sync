@@ -396,6 +396,8 @@ $this->colour_swatch_service =
         $this->api_client
     );
 
+    }
+
 
     /**
      * Get the supplier identifier.
