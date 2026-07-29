@@ -289,6 +289,28 @@ add_submenu_page(
 
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-brands.php';
+
+            /*
+|--------------------------------------------------------------------------
+| Amrod Branding
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to branding department and
+| inclusive branding data returned by the Amrod Vendor API.
+|
+*/
+
+add_submenu_page(
+    'blackprint-commerce',
+    'Amrod Branding',
+    'Amrod Branding',
+    'manage_woocommerce',
+    'blackprint-amrod-branding',
+    [
+        $this,
+        'amrod_branding',
+    ]
+);
     }
 
 
@@ -623,6 +645,87 @@ public function amrod_prices(): void
 
     include BP_COMMERCE_PATH
         . 'admin/views/amrod-prices.php';
+}
+
+/**
+ * Render the Amrod Branding Explorer page.
+ *
+ * Read-only.
+ *
+ * @return void
+ */
+public function amrod_branding(): void
+{
+    $connector = new \BlackPrint\Commerce\Suppliers\Amrod\Amrod_Connector();
+
+    $branding_department_service =
+        $connector->get_branding_department_service();
+
+    $inclusive_branding_service =
+        $connector->get_inclusive_branding_service();
+
+    $result = [];
+
+    $error = '';
+
+    $action = isset($_GET['bp_amrod_branding_action'])
+        ? sanitize_key(
+            wp_unslash($_GET['bp_amrod_branding_action'])
+        )
+        : '';
+
+    if (
+        isset($_GET['bp_amrod_branding_test'])
+        && check_admin_referer('bp_amrod_branding_test')
+    ) {
+
+        try {
+
+            switch ($action) {
+
+                case 'branding_departments':
+
+                    $result = $branding_department_service
+                        ->get_branding_departments();
+
+                    break;
+
+                case 'updated_branding_departments':
+
+                    $result = $branding_department_service
+                        ->get_updated_branding_departments();
+
+                    break;
+
+                case 'inclusive_branding':
+
+                    $result = $inclusive_branding_service
+                        ->get_inclusive_branding();
+
+                    break;
+
+                case 'updated_inclusive_branding':
+
+                    $result = $inclusive_branding_service
+                        ->get_updated_inclusive_branding();
+
+                    break;
+
+                default:
+
+                    $error = 'Invalid branding action.';
+            }
+
+        } catch (\Throwable $exception) {
+
+            $error = $exception->getMessage();
+
+        }
+
+    }
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/amrod-branding.php';
 }
 
 
