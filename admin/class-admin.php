@@ -730,27 +730,8 @@ public function amrod_branding(): void
         . 'admin/views/amrod-branding.php';
 }
 
-/*
-|--------------------------------------------------------------------------
-| Amrod Colour Swatches
-|--------------------------------------------------------------------------
-|
-| Provides read-only access to Amrod colour
-| swatch data.
-|
-*/
 
-add_submenu_page(
-    'blackprint-commerce',
-    'Amrod Colour Swatches',
-    'Amrod Colour Swatches',
-    'manage_woocommerce',
-    'blackprint-amrod-colour-swatches',
-    [
-        $this,
-        'amrod_colour_swatches',
-    ]
-);
+
 
 
 }
