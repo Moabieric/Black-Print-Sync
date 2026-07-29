@@ -211,6 +211,28 @@ add_submenu_page(
         'amrod_prices',
     ]
 );
+
+/*
+|--------------------------------------------------------------------------
+| Amrod Branding
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to branding departments and
+| inclusive branding data returned by the Amrod Vendor API.
+|
+*/
+
+add_submenu_page(
+    'blackprint-commerce',
+    'Amrod Branding',
+    'Amrod Branding',
+    'manage_woocommerce',
+    'blackprint-amrod-branding',
+    [
+        $this,
+        'amrod_branding',
+    ]
+);
     }
 
 
@@ -290,27 +312,7 @@ add_submenu_page(
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-brands.php';
 
-            /*
-|--------------------------------------------------------------------------
-| Amrod Branding
-|--------------------------------------------------------------------------
-|
-| Provides read-only access to branding department and
-| inclusive branding data returned by the Amrod Vendor API.
-|
-*/
-
-add_submenu_page(
-    'blackprint-commerce',
-    'Amrod Branding',
-    'Amrod Branding',
-    'manage_woocommerce',
-    'blackprint-amrod-branding',
-    [
-        $this,
-        'amrod_branding',
-    ]
-);
+           
     }
 
 
