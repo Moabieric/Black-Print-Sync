@@ -381,6 +381,26 @@ require_once BP_COMMERCE_PATH
     . 'modules/suppliers/amrod/class-amrod-inclusive-branding-service.php';
 
 
+    /*
+|--------------------------------------------------------------------------
+| Amrod Colour Swatch Service
+|--------------------------------------------------------------------------
+|
+| Provides read-only access to Amrod colour swatch data.
+|
+| Supports:
+| - Full colour swatches.
+| - Updated colour swatches.
+|
+| Depends on:
+| - Amrod_Api_Client
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'modules/suppliers/amrod/class-amrod-colour-swatch-service.php';
+
+
         /*
         |--------------------------------------------------------------------------
         | Amrod Connector
@@ -398,6 +418,7 @@ require_once BP_COMMERCE_PATH
         | - Amrod_Stock_Service
         |
         */
+        
 
         require_once BP_COMMERCE_PATH
             . 'modules/suppliers/amrod/class-amrod-connector.php';

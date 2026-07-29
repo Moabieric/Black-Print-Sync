@@ -196,6 +196,24 @@ private const UPDATED_INCLUSIVE_BRANDING_ENDPOINT =
     '/api/v1/InclusiveBrandings/GetUpdated';
 
 
+    /**
+ * Full colour swatches endpoint.
+ *
+ * @var string
+ */
+private const COLOUR_SWATCHES_ENDPOINT =
+    '/api/v1/ColourSwatches/';
+
+
+/**
+ * Updated colour swatches endpoint.
+ *
+ * @var string
+ */
+private const UPDATED_COLOUR_SWATCHES_ENDPOINT =
+    '/api/v1/ColourSwatches/GetUpdated';
+
+
 
 
     /*
@@ -265,6 +283,14 @@ private Amrod_Branding_Department_Service $branding_department_service;
  * @var Amrod_Inclusive_Branding_Service
  */
 private Amrod_Inclusive_Branding_Service $inclusive_branding_service;
+
+
+/**
+ * Colour swatch service.
+ *
+ * @var Amrod_Colour_Swatch_Service
+ */
+private Amrod_Colour_Swatch_Service $colour_swatch_service;
 
 
     /**
@@ -359,7 +385,16 @@ $this->inclusive_branding_service =
         $this->api_client
     );
 
-        }
+    /*
+|--------------------------------------------------------------------------
+| Colour Swatch Service
+|--------------------------------------------------------------------------
+*/
+
+$this->colour_swatch_service =
+    new Amrod_Colour_Swatch_Service(
+        $this->api_client
+    );
 
 
     /**
@@ -497,6 +532,19 @@ public function get_inclusive_branding_service():
     Amrod_Inclusive_Branding_Service
 {
     return $this->inclusive_branding_service;
+}
+
+/**
+ * Get the Amrod colour swatch service.
+ *
+ * Provides controlled read-only access to
+ * colour swatch endpoints.
+ *
+ * @return Amrod_Colour_Swatch_Service
+ */
+public function get_colour_swatch_service(): Amrod_Colour_Swatch_Service
+{
+    return $this->colour_swatch_service;
 }
 
     /**
@@ -745,18 +793,28 @@ public function get_inclusive_branding_service():
     public function get_endpoint_registry(): array
     {
                 return [
+
     'brands'                         => self::BRANDS_ENDPOINT,
     'categories'                     => self::CATEGORIES_ENDPOINT,
+
     'products'                       => self::PRODUCTS_ENDPOINT,
     'updated_products'               => self::UPDATED_PRODUCTS_ENDPOINT,
+
     'products_with_branding'         => self::PRODUCTS_WITH_BRANDING_ENDPOINT,
     'updated_products_with_branding' => self::UPDATED_PRODUCTS_WITH_BRANDING_ENDPOINT,
+
     'prices'                         => self::PRICES_ENDPOINT,
     'updated_prices'                 => self::UPDATED_PRICES_ENDPOINT,
+
     'branding_departments'           => self::BRANDING_DEPARTMENTS_ENDPOINT,
     'updated_branding_departments'   => self::UPDATED_BRANDING_DEPARTMENTS_ENDPOINT,
-    'inclusive_branding'            => self::INCLUSIVE_BRANDING_ENDPOINT,
-'updated_inclusive_branding'        => self::UPDATED_INCLUSIVE_BRANDING_ENDPOINT,
+
+    'inclusive_branding'             => self::INCLUSIVE_BRANDING_ENDPOINT,
+    'updated_inclusive_branding'     => self::UPDATED_INCLUSIVE_BRANDING_ENDPOINT,
+
+    'colour_swatches'                => self::COLOUR_SWATCHES_ENDPOINT,
+    'updated_colour_swatches'        => self::UPDATED_COLOUR_SWATCHES_ENDPOINT,
+
 ];
     }
 
