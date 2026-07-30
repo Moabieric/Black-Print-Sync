@@ -517,3 +517,5 @@ $this->bootDatabase();
 
     new Admin();
 }
+
+}
