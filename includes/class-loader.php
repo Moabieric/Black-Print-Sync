@@ -47,7 +47,11 @@ class Loader
      * Loads all plugin dependencies and boots
      * the required plugin components.
      */
-    
+    private function loadDependencies(): void
+    {
+        $this->loadDependencies();
+        $this->boot();
+    }
 
 
     /**
@@ -504,8 +508,7 @@ private function bootDatabase(): void
  */
 private function boot(): void
 {
-    $this->boot_database();
-
+$this->bootDatabase();
     /*
     |--------------------------------------------------------------------------
     | Admin
@@ -513,5 +516,4 @@ private function boot(): void
     */
 
     new Admin();
-}
 }
