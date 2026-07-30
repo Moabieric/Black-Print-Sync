@@ -48,11 +48,11 @@ class Loader
      * the required plugin components.
      */
     private function __construct()
-    {
-        $this->load_dependencies();
+{
+    $this->loadDependencies();
 
-        $this->boot();
-    }
+    $this->boot();
+}
 
 
     /**
@@ -63,7 +63,7 @@ class Loader
      *
      * @return void
      */
-    private function load_dependencies(): void
+    private function loadDependencies(): void
     {
         /*
         |--------------------------------------------------------------------------
@@ -439,6 +439,36 @@ require_once BP_COMMERCE_PATH
         require_once BP_COMMERCE_PATH
             . 'modules/suppliers/amrod/class-amrod-health-check.php';
 
+            /*
+|--------------------------------------------------------------------------
+| Database
+|--------------------------------------------------------------------------
+|
+| Responsible for schema management and migrations.
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'database/contracts/interface-migration.php';
+
+require_once BP_COMMERCE_PATH
+    . 'database/class-schema-manager.php';
+
+require_once BP_COMMERCE_PATH
+    . 'database/migrations/class-create-migrations-table.php';
+
+require_once BP_COMMERCE_PATH
+    . 'database/migrations/class-create-sync-jobs-table.php';
+
+require_once BP_COMMERCE_PATH
+    . 'database/migrations/class-create-snapshots-table.php';
+
+require_once BP_COMMERCE_PATH
+    . 'database/migrations/class-create-snapshot-payloads-table.php';
+
+require_once BP_COMMERCE_PATH
+    . 'database/migrations/class-create-sync-logs-table.php';
+
 
         /*
         |--------------------------------------------------------------------------
@@ -459,18 +489,33 @@ require_once BP_COMMERCE_PATH
 
 
     /**
-     * Boot plugin components.
-     *
-     * @return void
-     */
-    private function boot(): void
-    {
-        /*
-        |--------------------------------------------------------------------------
-        | Admin
-        |--------------------------------------------------------------------------
-        */
+ * Boot database services.
+ *
+ * Responsible for schema management
+ * and database migrations.
+ *
+ * @return void
+ */
+private function bootDatabase(): void
+{
+    // Empty for now.
+}
 
-        new Admin();
-    }
+
+/**
+ * Boot plugin components.
+ *
+ * @return void
+ */
+private function boot(): void
+{
+    $this->boot_database();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin
+    |--------------------------------------------------------------------------
+    */
+
+    new Admin();
 }
