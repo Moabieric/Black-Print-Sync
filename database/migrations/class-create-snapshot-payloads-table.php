@@ -6,7 +6,7 @@ use BlackPrint\Commerce\Database\Contracts\MigrationInterface;
 
 defined('ABSPATH') || exit;
 
-class CreateSnapshotsTable implements MigrationInterface
+class CreateSnapshotPayloadsTable implements MigrationInterface
 {
     public function name(): string
     {
