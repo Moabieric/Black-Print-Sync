@@ -8,20 +8,18 @@ defined('ABSPATH') || exit;
  * BlackPrint Commerce Plugin Loader.
  *
  * Responsible for loading all plugin dependencies and
- * booting the plugin's runtime components.
- *
- * Dependencies are loaded in a deliberate order so that
- * classes are available before dependent services are
- * instantiated.
- *
- * @package BlackPrint\Commerce
+ * booting the plugin runtime.
  */
-
-
-    class Loader
+class Loader
 {
+    /**
+     * Singleton instance.
+     */
     private static ?Loader $instance = null;
 
+    /**
+     * Get singleton instance.
+     */
     public static function instance(): Loader
     {
         if (self::$instance === null) {
@@ -31,6 +29,9 @@ defined('ABSPATH') || exit;
         return self::$instance;
     }
 
+    /**
+     * Constructor.
+     */
     private function __construct()
     {
         $this->loadDependencies();
@@ -38,19 +39,12 @@ defined('ABSPATH') || exit;
         $this->boot();
     }
 
-
-
     /**
      * Load all plugin dependencies.
-     *
-     * Dependencies must be loaded before any class
-     * that relies on them is instantiated.
-     *
-     * @return void
      */
     private function loadDependencies(): void
     {
-        /*
+        // ALL require_once statements go here.
         |--------------------------------------------------------------------------
         | Core Store
         |--------------------------------------------------------------------------
