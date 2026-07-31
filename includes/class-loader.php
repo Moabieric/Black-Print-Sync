@@ -38,14 +38,6 @@ defined('ABSPATH') || exit;
         $this->boot();
     }
 
-    private function loadDependencies(): void
-    {
-        // require_once ...
-    }
-}
-
-
-    
 
 
     /**
