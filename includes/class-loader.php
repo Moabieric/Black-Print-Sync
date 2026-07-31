@@ -41,17 +41,7 @@ class Loader
     }
 
 
-    /**
-     * Constructor.
-     *
-     * Loads all plugin dependencies and boots
-     * the required plugin components.
-     */
-    private function loadDependencies(): void
-    {
-        $this->loadDependencies();
-        $this->boot();
-    }
+    
 
 
     /**
