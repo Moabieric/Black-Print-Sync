@@ -16,21 +16,12 @@ defined('ABSPATH') || exit;
  *
  * @package BlackPrint\Commerce
  */
-class Loader
+
+
+    class Loader
 {
-    /**
-     * Singleton instance.
-     *
-     * @var Loader|null
-     */
     private static ?Loader $instance = null;
 
-
-    /**
-     * Get singleton instance.
-     *
-     * @return Loader
-     */
     public static function instance(): Loader
     {
         if (self::$instance === null) {
@@ -39,6 +30,19 @@ class Loader
 
         return self::$instance;
     }
+
+    private function __construct()
+    {
+        $this->loadDependencies();
+
+        $this->boot();
+    }
+
+    private function loadDependencies(): void
+    {
+        // require_once ...
+    }
+}
 
 
     
