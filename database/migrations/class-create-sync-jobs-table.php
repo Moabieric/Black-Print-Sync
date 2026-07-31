@@ -4,61 +4,31 @@ namespace BlackPrint\Commerce\Database\Migrations;
 
 use BlackPrint\Commerce\Database\Contracts\MigrationInterface;
 
+defined('ABSPATH') || exit;
+
 class CreateSyncJobsTable implements MigrationInterface
 {
-    public function version(): string
+    /**
+     * Unique migration name.
+     */
+    public function name(): string
     {
-        return '2.0.0';
+        return static::class;
     }
 
+    /**
+     * Migration version.
+     */
+    public function version(): string
+    {
+        return '1.0.0';
+    }
+
+    /**
+     * Execute migration.
+     */
     public function up(): void
     {
-        global $wpdb;
-
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-        $table = $wpdb->prefix . 'bp_sync_jobs';
-
-        $charset = $wpdb->get_charset_collate();
-
-        $sql = "
-
-        CREATE TABLE {$table} (
-
-            id CHAR(36) NOT NULL,
-
-            supplier VARCHAR(50) NOT NULL,
-
-            job_name VARCHAR(100) NOT NULL,
-
-            status VARCHAR(30) NOT NULL,
-
-            attempt INT NOT NULL DEFAULT 1,
-
-            snapshot_id CHAR(36) NULL,
-
-            started_at DATETIME NOT NULL,
-
-            finished_at DATETIME NULL,
-
-            duration_ms BIGINT NULL,
-
-            error_message TEXT NULL,
-
-            metadata LONGTEXT NULL,
-
-            PRIMARY KEY (id),
-
-            KEY idx_supplier (supplier),
-
-            KEY idx_job_name (job_name),
-
-            KEY idx_status (status)
-
-        ) {$charset};
-
-        ";
-
-        dbDelta($sql);
+        // TODO
     }
 }
