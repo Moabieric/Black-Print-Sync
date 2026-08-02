@@ -6,13 +6,14 @@ class Snapshot
 {
     private string $id;
 
-    private string $jobId;
+    private int $syncJobId;
+private int $sequenceNumber;
 
     private string $supplier;
 
     private string $resource;
 
-    private string $type;
+    
 
     private string $checksum;
 
@@ -22,7 +23,7 @@ class Snapshot
 
     private array $metadata;
 
-    private array $payload;
+    
 
     public function __construct(
         string $id,

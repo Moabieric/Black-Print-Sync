@@ -6,34 +6,38 @@ class JobContext
 {
     private string $jobId;
 
-    private string $jobName;
+private string $supplier;
 
-    private string $supplier;
+private string $resource;
 
-    private int $attempt;
+private string $jobType;
 
-    private ?string $snapshotId;
+private int $attempt;
 
-    private string $startedAt;
+private ?string $snapshotId;
 
-    private array $metadata;
+private string $startedAt;
+
+private array $metadata;
 
     public function __construct(
-        string $jobId,
-        string $jobName,
-        string $supplier,
-        int $attempt = 1,
-        ?string $snapshotId = null,
-        ?string $startedAt = null,
-        array $metadata = []
-    ) {
+    string $jobId,
+    string $supplier,
+    string $resource,
+    string $jobType,
+    int $attempt = 1,
+    ?string $snapshotId = null,
+    ?string $startedAt = null,
+    array $metadata = []
+) {
         $this->jobId = $jobId;
-        $this->jobName = $jobName;
-        $this->supplier = $supplier;
-        $this->attempt = $attempt;
-        $this->snapshotId = $snapshotId;
-        $this->startedAt = $startedAt ?? gmdate('Y-m-d H:i:s');
-        $this->metadata = $metadata;
+$this->supplier = $supplier;
+$this->resource = $resource;
+$this->jobType = $jobType;
+$this->attempt = $attempt;
+$this->snapshotId = $snapshotId;
+$this->startedAt = $startedAt ?? gmdate('Y-m-d H:i:s');
+$this->metadata = $metadata;
     }
 
     public function jobId(): string
@@ -41,9 +45,14 @@ class JobContext
         return $this->jobId;
     }
 
-    public function jobName(): string
+    public function resource(): string
     {
-        return $this->jobName;
+        return $this->resource;
+    }
+
+    public function jobType(): string
+    {
+        return $this->jobType;
     }
 
     public function supplier(): string
@@ -80,7 +89,8 @@ class JobContext
     {
         return [
             'job_id'      => $this->jobId,
-            'job_name'    => $this->jobName,
+            'resource'    => $this->resource,
+            'job_type'    => $this->jobType,
             'supplier'    => $this->supplier,
             'attempt'     => $this->attempt,
             'snapshot_id' => $this->snapshotId,
