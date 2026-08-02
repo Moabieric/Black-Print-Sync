@@ -14,9 +14,8 @@ interface SyncJobRepositoryInterface
         string $uuid
     ): ?SyncJob;
 
-    public function updateStatus(
-        string $uuid,
-        string $status
+    public function markRunning(
+        string $uuid
     ): void;
 
     public function markCompleted(
@@ -27,5 +26,9 @@ interface SyncJobRepositoryInterface
     public function markFailed(
         string $uuid,
         string $message
+    ): void;
+
+    public function markCancelled(
+        string $uuid
     ): void;
 }
