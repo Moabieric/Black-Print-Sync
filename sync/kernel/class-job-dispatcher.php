@@ -18,33 +18,33 @@ class JobDispatcher
      * Register a job.
      */
     public function register(
-        string $supplier,
-        string $jobName,
-        string $jobClass
-    ): void {
+    string $supplier,
+    string $resource,
+    string $jobClass
+): void {
 
-        $this->jobs[$supplier][$jobName] = $jobClass;
-    }
+    $this->jobs[$supplier][$resource] = $jobClass;
+}
 
     /**
      * Resolve a job instance.
      */
     public function resolve(
-        string $supplier,
-        string $jobName
-    ): SyncJobInterface {
+    string $supplier,
+    string $resource
+): SyncJobInterface {
 
-        if (! isset($this->jobs[$supplier][$jobName])) {
+        if (! isset($this->jobs[$supplier][$resource])) {
             throw new InvalidArgumentException(
                 sprintf(
-                    'Job [%s:%s] is not registered.',
-                    $supplier,
-                    $jobName
-                )
+    'Resource [%s:%s] is not registered.',
+    $supplier,
+    $resource
+)
             );
         }
 
-        $class = $this->jobs[$supplier][$jobName];
+        $class = $this->jobs[$supplier][$resource];
 
         $job = new $class();
 
@@ -64,14 +64,14 @@ class JobDispatcher
      * Check registration.
      */
     public function has(
-        string $supplier,
-        string $jobName
-    ): bool {
+    string $supplier,
+    string $resource
+): bool {
 
-        return isset(
-            $this->jobs[$supplier][$jobName]
-        );
-    }
+    return isset(
+        $this->jobs[$supplier][$resource]
+    );
+}
 
     /**
      * Return all jobs.

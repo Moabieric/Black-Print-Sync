@@ -19,30 +19,48 @@ class JobRunner
     ): SyncResult {
 
         $lockKey = sprintf(
-            '%s:%s',
+
+            '%s:%s:%s',
+
             $context->supplier(),
-            $context->jobName()
+
+            $context->resource(),
+
+            $context->jobType()
+
         );
 
         if (! LockManager::acquire($lockKey)) {
 
             return new SyncResult(
+
                 success: false,
+
                 failed: 1,
+
                 errors: [
+
                     sprintf(
+
                         'Job [%s] is already running.',
+
                         $lockKey
+
                     )
+
                 ]
+
             );
         }
 
         try {
 
             $job = $this->dispatcher->resolve(
+
                 $context->supplier(),
-                $context->jobName()
+
+                $context->resource()
+
             );
 
             return $job->execute($context);
@@ -50,11 +68,17 @@ class JobRunner
         } catch (Exception $e) {
 
             return new SyncResult(
+
                 success: false,
+
                 failed: 1,
+
                 errors: [
+
                     $e->getMessage()
+
                 ]
+
             );
 
         } finally {

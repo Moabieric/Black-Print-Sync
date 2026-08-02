@@ -8,22 +8,19 @@ use BlackPrint\Commerce\Sync\Kernel\SyncResult;
 interface SyncJobInterface
 {
     /**
-     * Unique job name.
-     */
-    public function name(): string;
-
-    /**
      * Supplier code.
      */
     public function supplier(): string;
 
     /**
-     * Cron schedule.
+     * Resource name.
      */
-    public function schedule(): string;
+    public function resource(): string;
 
     /**
      * Execute the sync.
      */
-    public function execute(JobContext $context): SyncResult;
+    public function execute(
+        JobContext $context
+    ): SyncResult;
 }

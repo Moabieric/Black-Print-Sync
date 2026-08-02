@@ -8,28 +8,30 @@ use BlackPrint\Commerce\Sync\Kernel\SyncResult;
 
 class ProductSyncJob implements SyncJobInterface
 {
-    public function name(): string
-    {
-        return 'products';
-    }
-
     public function supplier(): string
     {
         return 'amrod';
     }
 
-    public function schedule(): string
+    public function resource(): string
     {
-        return 'daily';
+        return 'products';
     }
 
-    public function execute(JobContext $context): SyncResult
-    {
+    public function execute(
+        JobContext $context
+    ): SyncResult {
+
         return new SyncResult(
+
             success: true,
+
             metadata: [
-                'message' => 'Product sync placeholder.'
+
+                'message' => 'Product sync placeholder.',
+
             ]
+
         );
     }
 }
