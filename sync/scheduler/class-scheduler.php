@@ -17,48 +17,54 @@ class Scheduler
      * Register a scheduled job.
      */
     public function register(
-        string $supplier,
-        string $jobName,
-        string $schedule
-    ): void {
+    string $supplier,
+    string $resource,
+    string $schedule,
+    string $jobType = 'scheduled'
+): void {
 
         $hook = $this->hook(
             $supplier,
-            $jobName
+            $resource
         );
 
         $this->jobs[] = [
 
-            'supplier' => $supplier,
+    'supplier' => $supplier,
 
-            'job' => $jobName,
+    'resource' => $resource,
 
-            'schedule' => $schedule,
+    'schedule' => $schedule,
 
-            'hook' => $hook,
+    'job_type' => $jobType,
 
-        ];
+    'hook' => $hook,
+
+];
 
         add_action(
             $hook,
             function () use (
-                $supplier,
-                $jobName
-            ) {
+    $supplier,
+    $resource,
+    $jobType
+) {
 
                 $this->syncManager->dispatch(
 
-                    $supplier,
+    $supplier,
 
-                    $jobName,
+    $resource,
 
-                    [
+    [
 
-                        'triggered_by' => 'scheduler',
+        'job_type' => $jobType,
 
-                    ]
+        'triggered_by' => 'scheduler',
 
-                );
+    ]
+
+);
 
             }
         );
@@ -94,17 +100,17 @@ class Scheduler
      */
     private function hook(
         string $supplier,
-        string $jobName
+        string $resource
     ): string {
 
         return sprintf(
 
-            'bp_sync_%s_%s',
+    'bp_sync_%s_%s',
 
-            $supplier,
+    $supplier,
 
-            $jobName
+    $resource
 
-        );
+);
     }
 }

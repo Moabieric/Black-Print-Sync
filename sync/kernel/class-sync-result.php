@@ -6,26 +6,30 @@ class SyncResult
 {
     private bool $success;
 
-    private int $fetched;
+private int $fetched;
 
-    private int $created;
+private int $processed;
 
-    private int $updated;
+private int $skipped;
 
-    private int $unchanged;
+private int $failed;
 
-    private int $failed;
+private float $duration;
 
-    private float $duration;
+private array $errors;
 
-    private array $errors;
-
-    private array $metadata;
+private array $metadata;
 
     public function __construct(
         bool $success = true,
         int $fetched = 0,
-        int $created = 0,
+        int $processed = 0,
+        int $skipped = 0,
+        int $failed = 0,
+        float $duration = 0.0,
+        array $errors = [],
+        array $metadata = []
+    ) {
         int $updated = 0,
         int $unchanged = 0,
         int $failed = 0,
@@ -35,7 +39,9 @@ class SyncResult
     ) {
         $this->success = $success;
         $this->fetched = $fetched;
-        $this->created = $created;
+        $this->processed = $processed;
+        $this->skipped = $skipped;
+        $this->failed = $failed;
         $this->updated = $updated;
         $this->unchanged = $unchanged;
         $this->failed = $failed;

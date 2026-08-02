@@ -13,19 +13,29 @@ class SyncManager
      * Dispatch a sync job.
      */
     public function dispatch(
-        string $supplier,
-        string $jobName,
-        array $metadata = []
-    ): SyncResult {
+    string $supplier,
+    string $resource,
+    array $metadata = []
+): SyncResult {
 
-        $context = new JobContext(
-            jobId: uniqid('job_', true),
-            jobName: $jobName,
-            supplier: $supplier,
-            attempt: 1,
-            metadata: $metadata
-        );
+    $context = new JobContext(
 
-        return $this->runner->run($context);
-    }
+        jobId: uniqid('job_', true),
+
+        supplier: $supplier,
+
+        resource: $resource,
+
+        jobType: $metadata['job_type'] ?? 'manual',
+
+        attempt: 1,
+
+        snapshotId: null,
+
+        metadata: $metadata
+
+    );
+
+    return $this->runner->run($context);
+}
 }
