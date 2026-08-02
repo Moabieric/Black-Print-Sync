@@ -86,16 +86,16 @@ $this->metadata = $metadata;
     }
 
     public function toArray(): array
-    {
-        return [
-            'job_id'      => $this->jobId,
-            'resource'    => $this->resource,
-            'job_type'    => $this->jobType,
-            'supplier'    => $this->supplier,
-            'attempt'     => $this->attempt,
-            'snapshot_id' => $this->snapshotId,
-            'started_at'  => $this->startedAt,
-            'metadata'    => $this->metadata,
-        ];
-    }
+{
+    return [
+        'job_id'      => $this->jobId,
+        'supplier'    => $this->supplier,
+        'resource'    => $this->resource,
+        'job_type'    => $this->jobType,
+        'attempt'     => $this->attempt,
+        'snapshot_id' => $this->snapshotId,
+        'started_at'  => $this->startedAt,
+        'metadata'    => $this->metadata,
+    ];
+}
 }
