@@ -16,20 +16,24 @@ private int $failed;
 
 private float $duration;
 
+private ?string $snapshotId;
+
 private array $errors;
 
 private array $metadata;
 
     public function __construct(
-        bool $success = true,
-        int $fetched = 0,
-        int $processed = 0,
-        int $skipped = 0,
-        int $failed = 0,
-        float $duration = 0.0,
-        array $errors = [],
-        array $metadata = []
-    ) {
+    bool $success = true,
+    int $fetched = 0,
+    int $created = 0,
+    int $updated = 0,
+    int $unchanged = 0,
+    int $failed = 0,
+    float $duration = 0.0,
+    ?string $snapshotId = null,
+    array $errors = [],
+    array $metadata = []
+) {
         int $updated = 0,
         int $unchanged = 0,
         int $failed = 0,
@@ -46,6 +50,7 @@ private array $metadata;
         $this->unchanged = $unchanged;
         $this->failed = $failed;
         $this->duration = $duration;
+        $this->snapshotId = $snapshotId;
         $this->errors = $errors;
         $this->metadata = $metadata;
     }
@@ -85,6 +90,11 @@ private array $metadata;
         return $this->duration;
     }
 
+    public function snapshotId(): ?string
+{
+    return $this->snapshotId;
+}
+
     public function errors(): array
     {
         return $this->errors;
@@ -110,6 +120,7 @@ private array $metadata;
             'unchanged' => $this->unchanged,
             'failed'    => $this->failed,
             'duration'  => $this->duration,
+            'snapshotId' => $this->snapshotId,
             'errors'    => $this->errors,
             'metadata'  => $this->metadata,
         ];

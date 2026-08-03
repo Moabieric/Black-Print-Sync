@@ -42,28 +42,26 @@ class CreateSnapshotPayloadsTable implements MigrationInterface
         $charset = $wpdb->get_charset_collate();
 
         $sql = "
-            CREATE TABLE {$table} (
 
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    CREATE TABLE {$table} (
 
-                snapshot_id BIGINT UNSIGNED NOT NULL,
+        snapshot_uuid VARCHAR(64) NOT NULL,
 
-                payload LONGTEXT NOT NULL,
+        payload LONGTEXT NOT NULL,
 
-                compressed TINYINT(1) NOT NULL DEFAULT 0,
+        compression VARCHAR(20) NOT NULL DEFAULT 'gzip',
 
-                payload_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        payload_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
 
-                created_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL,
 
-                PRIMARY KEY (id),
+        PRIMARY KEY (snapshot_uuid),
 
-                KEY idx_snapshot_id (snapshot_id),
+        KEY idx_created_at (created_at)
 
-                KEY idx_created_at (created_at)
+    ) {$charset};
 
-            ) {$charset};
-        ";
+";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
