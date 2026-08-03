@@ -2,52 +2,53 @@
 
 namespace BlackPrint\Commerce\Sync\Entities;
 
-class Snapshot
+final class Snapshot
 {
     private string $id;
 
-    private int $syncJobId;
-private int $sequenceNumber;
+    private string $jobId;
+
+    private int $sequenceNumber;
 
     private string $supplier;
 
     private string $resource;
 
-    
+    private string $type;
 
     private string $checksum;
 
     private int $recordCount;
 
-    private string $createdAt;
-
     private array $metadata;
 
-    
+    private string $createdAt;
 
     public function __construct(
         string $id,
         string $jobId,
+        int $sequenceNumber,
         string $supplier,
         string $resource,
         string $type,
         string $checksum,
         int $recordCount,
-        array $payload,
         array $metadata = [],
         ?string $createdAt = null
     ) {
         $this->id = $id;
         $this->jobId = $jobId;
+        $this->sequenceNumber = $sequenceNumber;
         $this->supplier = $supplier;
         $this->resource = $resource;
         $this->type = $type;
         $this->checksum = $checksum;
         $this->recordCount = $recordCount;
-        $this->payload = $payload;
         $this->metadata = $metadata;
         $this->createdAt = $createdAt ?? gmdate('Y-m-d H:i:s');
     }
+
+
 
     public function id(): string
     {
