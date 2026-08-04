@@ -6,38 +6,30 @@ class SyncResult
 {
     private bool $success;
 
-private int $fetched;
+    private int $fetched;
 
-private int $processed;
+    private int $processed;
 
-private int $skipped;
+    private int $skipped;
 
-private int $failed;
+    private int $failed;
 
-private float $duration;
+    private float $duration;
 
-private ?string $snapshotId;
+    private ?string $snapshotId;
 
-private array $errors;
+    private array $errors;
 
-private array $metadata;
+    private array $metadata;
 
     public function __construct(
-    bool $success = true,
-    int $fetched = 0,
-    int $created = 0,
-    int $updated = 0,
-    int $unchanged = 0,
-    int $failed = 0,
-    float $duration = 0.0,
-    ?string $snapshotId = null,
-    array $errors = [],
-    array $metadata = []
-) {
-        int $updated = 0,
-        int $unchanged = 0,
+        bool $success = true,
+        int $fetched = 0,
+        int $processed = 0,
+        int $skipped = 0,
         int $failed = 0,
         float $duration = 0.0,
+        ?string $snapshotId = null,
         array $errors = [],
         array $metadata = []
     ) {
@@ -45,9 +37,6 @@ private array $metadata;
         $this->fetched = $fetched;
         $this->processed = $processed;
         $this->skipped = $skipped;
-        $this->failed = $failed;
-        $this->updated = $updated;
-        $this->unchanged = $unchanged;
         $this->failed = $failed;
         $this->duration = $duration;
         $this->snapshotId = $snapshotId;
@@ -65,19 +54,14 @@ private array $metadata;
         return $this->fetched;
     }
 
-    public function created(): int
+    public function processed(): int
     {
-        return $this->created;
+        return $this->processed;
     }
 
-    public function updated(): int
+    public function skipped(): int
     {
-        return $this->updated;
-    }
-
-    public function unchanged(): int
-    {
-        return $this->unchanged;
+        return $this->skipped;
     }
 
     public function failed(): int
@@ -91,9 +75,9 @@ private array $metadata;
     }
 
     public function snapshotId(): ?string
-{
-    return $this->snapshotId;
-}
+    {
+        return $this->snapshotId;
+    }
 
     public function errors(): array
     {
@@ -113,16 +97,15 @@ private array $metadata;
     public function toArray(): array
     {
         return [
-            'success'   => $this->success,
-            'fetched'   => $this->fetched,
-            'created'   => $this->created,
-            'updated'   => $this->updated,
-            'unchanged' => $this->unchanged,
-            'failed'    => $this->failed,
-            'duration'  => $this->duration,
-            'snapshotId' => $this->snapshotId,
-            'errors'    => $this->errors,
-            'metadata'  => $this->metadata,
+            'success'     => $this->success,
+            'fetched'     => $this->fetched,
+            'processed'   => $this->processed,
+            'skipped'     => $this->skipped,
+            'failed'      => $this->failed,
+            'duration'    => $this->duration,
+            'snapshot_id' => $this->snapshotId,
+            'errors'      => $this->errors,
+            'metadata'    => $this->metadata,
         ];
     }
 }
