@@ -32,6 +32,21 @@ require_once BP_COMMERCE_PATH
 require_once BP_COMMERCE_PATH
     . 'sync/entities/class-snapshot.php';
 
+    require_once BP_COMMERCE_PATH
+    . 'sync/contracts/interface-sync-job-repository.php';
+
+require_once BP_COMMERCE_PATH
+    . 'sync/contracts/interface-snapshot-repository.php';
+
+require_once BP_COMMERCE_PATH
+    . 'sync/contracts/interface-snapshot-payload-repository.php';
+
+require_once BP_COMMERCE_PATH
+    . 'sync/contracts/interface-sync-log-repository.php';
+
+require_once BP_COMMERCE_PATH
+    . 'sync/contracts/interface-sync-job.php';
+
 require_once BP_COMMERCE_PATH
     . 'sync/repositories/class-sync-job-repository.php';
 
