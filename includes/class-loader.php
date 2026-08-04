@@ -58,11 +58,13 @@ class Loader
     {
         $this->loadCoreDependencies();
 
-        $this->loadSupplierDependencies();
+$this->loadSupplierDependencies();
 
-        $this->loadDatabaseDependencies();
+$this->loadDatabaseDependencies();
 
-        $this->loadAdminDependencies();
+$this->loadSyncDependencies();
+
+$this->loadAdminDependencies();
     }
 
     /**
@@ -91,6 +93,14 @@ class Loader
         require_once BP_COMMERCE_PATH
             . 'includes/bootstrap/class-database-dependencies.php';
     }
+/**
+     * Load sync dependencies.
+     */
+    private function loadSyncDependencies(): void
+{
+    require_once BP_COMMERCE_PATH
+        . 'includes/bootstrap/class-sync-dependencies.php';
+}
 
     /**
      * Load admin dependencies.
