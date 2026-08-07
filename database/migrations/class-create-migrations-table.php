@@ -29,6 +29,26 @@ class CreateMigrationsTable implements MigrationInterface
      */
     public function up(): void
     {
-        // Table creation logic
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'bp_migrations';
+
+        $charsetCollate = $wpdb->get_charset_collate();
+
+        $sql = "
+        CREATE TABLE {$table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            migration VARCHAR(255) NOT NULL,
+            version VARCHAR(50) NOT NULL,
+            executed_at DATETIME NOT NULL,
+
+            PRIMARY KEY (id),
+            UNIQUE KEY migration (migration)
+        ) {$charsetCollate};
+        ";
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        dbDelta($sql);
     }
 }
