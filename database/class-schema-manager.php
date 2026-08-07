@@ -28,8 +28,14 @@ class SchemaManager
      * Execute pending migrations.
      */
     public function migrate(): void
-    {
-        foreach ($this->migrations as $migration) {
+{
+    error_log('BLACKPRINT: migrate started');
+
+    foreach ($this->migrations as $migration) {
+
+        error_log(
+            'BLACKPRINT: checking ' . $migration->name()
+        );
 
             /*
              * Bootstrap phase:
