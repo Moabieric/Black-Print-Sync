@@ -111,15 +111,31 @@ $this->loadAdminDependencies();
             . 'includes/bootstrap/class-admin-dependencies.php';
     }
 
-    /**
-     * Boot database services.
-     */
-    private function bootDatabase(): void
+   /**
+ * Boot database services.
+ */
+private function bootDatabase(): void
 {
     $schema = new SchemaManager();
 
     $schema->register(
         new CreateMigrationsTable()
+    );
+
+    $schema->register(
+        new CreateSyncJobsTable()
+    );
+
+    $schema->register(
+        new CreateSnapshotsTable()
+    );
+
+    $schema->register(
+        new CreateSnapshotPayloadsTable()
+    );
+
+    $schema->register(
+        new CreateSyncLogsTable()
     );
 
     $schema->migrate();

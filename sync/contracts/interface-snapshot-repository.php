@@ -18,6 +18,6 @@ interface SnapshotRepositoryInterface
      * @return Snapshot[]
      */
     public function findByJob(
-        int $syncJobId
+        string $syncJobUuid
     ): array;
 }

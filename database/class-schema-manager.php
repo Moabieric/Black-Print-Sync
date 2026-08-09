@@ -6,7 +6,12 @@ use BlackPrint\Commerce\Database\Contracts\MigrationInterface;
 
 defined('ABSPATH') || exit;
 
-class SchemaManager
+/**
+ * BlackPrint Database Schema Manager.
+ *
+ * Responsible for registering and executing database migrations.
+ */
+final class SchemaManager
 {
     /**
      * Registered migrations.
@@ -28,50 +33,84 @@ class SchemaManager
      * Execute pending migrations.
      */
     public function migrate(): void
-{
-    error_log('BLACKPRINT: migrate started');
+    {
+        error_log('BLACKPRINT: database migration started');
 
-    foreach ($this->migrations as $migration) {
+        $this->ensureMigrationsTable();
 
-        error_log(
-            'BLACKPRINT: checking ' . $migration->name()
-        );
+        foreach ($this->migrations as $migration) {
 
             /*
-             * Bootstrap phase:
-             * If the migrations table does not exist yet,
-             * run only the migration that creates it.
+             * The migration registry itself has already
+             * been created by ensureMigrationsTable().
              */
+            if (
+                $migration->name()
+                === 'BlackPrint\\Commerce\\Database\\Migrations\\CreateMigrationsTable'
+            ) {
+                continue;
+            }
 
-            if (! $this->migrationsTableExists()) {
+            error_log(
+                'BLACKPRINT: checking migration '
+                . $migration->name()
+            );
 
-                if (
-                    str_contains(
-                        $migration->name(),
-                        'CreateMigrationsTable'
-                    )
-                ) {
-                    $migration->up();
-
-                    $this->record($migration);
-                }
+            if ($this->hasRun($migration)) {
+                error_log(
+                    'BLACKPRINT: migration already run '
+                    . $migration->name()
+                );
 
                 continue;
             }
 
-            /*
-             * Normal phase:
-             * Run only migrations that have not been executed.
-             */
+            error_log(
+                'BLACKPRINT: running migration '
+                . $migration->name()
+            );
 
-            if ($this->hasRun($migration)) {
+            $migration->up();
+
+            $this->record($migration);
+
+            error_log(
+                'BLACKPRINT: migration completed '
+                . $migration->name()
+            );
+        }
+
+        error_log('BLACKPRINT: database migration finished');
+    }
+
+    /**
+     * Ensure the migrations table exists.
+     */
+    private function ensureMigrationsTable(): void
+    {
+        if ($this->migrationsTableExists()) {
+            return;
+        }
+
+        foreach ($this->migrations as $migration) {
+
+            if (
+                $migration->name()
+                !== 'BlackPrint\\Commerce\\Database\\Migrations\\CreateMigrationsTable'
+            ) {
                 continue;
             }
 
             $migration->up();
 
             $this->record($migration);
+
+            return;
         }
+
+        error_log(
+            'BLACKPRINT: CreateMigrationsTable migration not registered'
+        );
     }
 
     /**
@@ -99,7 +138,6 @@ class SchemaManager
     private function hasRun(
         MigrationInterface $migration
     ): bool {
-
         global $wpdb;
 
         $table = $wpdb->prefix . 'bp_migrations';
@@ -124,7 +162,6 @@ class SchemaManager
     private function record(
         MigrationInterface $migration
     ): void {
-
         global $wpdb;
 
         $table = $wpdb->prefix . 'bp_migrations';
@@ -132,9 +169,14 @@ class SchemaManager
         $wpdb->insert(
             $table,
             [
-                'migration'  => $migration->name(),
-                'version'    => $migration->version(),
+                'migration'   => $migration->name(),
+                'version'     => $migration->version(),
                 'executed_at' => current_time('mysql'),
+            ],
+            [
+                '%s',
+                '%s',
+                '%s',
             ]
         );
     }

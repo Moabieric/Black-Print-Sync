@@ -14,13 +14,13 @@ interface SyncLogRepositoryInterface
      * @return SyncLog[]
      */
     public function findByJob(
-        int $syncJobId
+        string $syncJobUuid
     ): array;
 
     /**
      * @return SyncLog[]
      */
     public function findBySnapshot(
-        int $snapshotId
+        string $snapshotUuid
     ): array;
 }

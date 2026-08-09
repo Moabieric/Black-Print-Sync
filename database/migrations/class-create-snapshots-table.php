@@ -14,25 +14,16 @@ defined('ABSPATH') || exit;
  */
 class CreateSnapshotsTable implements MigrationInterface
 {
-    /**
-     * Unique migration name.
-     */
     public function name(): string
     {
         return static::class;
     }
 
-    /**
-     * Migration version.
-     */
     public function version(): string
     {
         return '1.0.0';
     }
 
-    /**
-     * Execute migration.
-     */
     public function up(): void
     {
         global $wpdb;
@@ -48,11 +39,13 @@ class CreateSnapshotsTable implements MigrationInterface
 
                 uuid CHAR(36) NOT NULL,
 
-                sync_job_id BIGINT UNSIGNED NOT NULL,
+                sync_job_uuid CHAR(36) NOT NULL,
 
                 supplier VARCHAR(50) NOT NULL,
 
                 resource VARCHAR(50) NOT NULL,
+
+                type VARCHAR(50) NOT NULL,
 
                 sequence_number INT UNSIGNED NOT NULL DEFAULT 1,
 
@@ -60,17 +53,21 @@ class CreateSnapshotsTable implements MigrationInterface
 
                 records_count INT UNSIGNED NOT NULL DEFAULT 0,
 
+                metadata LONGTEXT NULL,
+
                 created_at DATETIME NOT NULL,
 
                 PRIMARY KEY (id),
 
                 UNIQUE KEY idx_uuid (uuid),
 
-                KEY idx_sync_job_id (sync_job_id),
+                KEY idx_sync_job_uuid (sync_job_uuid),
 
                 KEY idx_supplier (supplier),
 
                 KEY idx_resource (resource),
+
+                KEY idx_type (type),
 
                 KEY idx_sequence (sequence_number),
 

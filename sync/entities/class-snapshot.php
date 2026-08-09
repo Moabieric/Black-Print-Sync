@@ -2,62 +2,46 @@
 
 namespace BlackPrint\Commerce\Sync\Entities;
 
+defined('ABSPATH') || exit;
+
+/**
+ * Immutable synchronization snapshot metadata.
+ *
+ * Raw payload data is stored separately by the
+ * SnapshotPayloadRepository.
+ */
 final class Snapshot
 {
-    private string $id;
-
-    private string $jobId;
-
-    private int $sequenceNumber;
-
-    private string $supplier;
-
-    private string $resource;
-
-    private string $type;
-
-    private string $checksum;
-
-    private int $recordCount;
-
-    private array $metadata;
-
-    private string $createdAt;
-
     public function __construct(
-        string $id,
-        string $jobId,
-        int $sequenceNumber,
-        string $supplier,
-        string $resource,
-        string $type,
-        string $checksum,
-        int $recordCount,
-        array $metadata = [],
-        ?string $createdAt = null
+        private readonly string $id,
+        private readonly string $jobId,
+        private readonly int $sequenceNumber,
+        private readonly string $supplier,
+        private readonly string $resource,
+        private readonly string $type,
+        private readonly string $checksum,
+        private readonly int $recordCount,
+        private readonly array $metadata = [],
+        private readonly ?string $createdAt = null
     ) {
-        $this->id = $id;
-        $this->jobId = $jobId;
-        $this->sequenceNumber = $sequenceNumber;
-        $this->supplier = $supplier;
-        $this->resource = $resource;
-        $this->type = $type;
-        $this->checksum = $checksum;
-        $this->recordCount = $recordCount;
-        $this->metadata = $metadata;
-        $this->createdAt = $createdAt ?? gmdate('Y-m-d H:i:s');
     }
-
-
 
     public function id(): string
     {
         return $this->id;
     }
 
+    /**
+     * SyncJob UUID.
+     */
     public function jobId(): string
     {
         return $this->jobId;
+    }
+
+    public function sequenceNumber(): int
+    {
+        return $this->sequenceNumber;
     }
 
     public function supplier(): string
@@ -85,11 +69,6 @@ final class Snapshot
         return $this->recordCount;
     }
 
-    public function payload(): array
-    {
-        return $this->payload;
-    }
-
     public function metadata(): array
     {
         return $this->metadata;
@@ -97,12 +76,7 @@ final class Snapshot
 
     public function createdAt(): string
     {
-        return $this->createdAt;
-    }
-
-    public function hasPayload(): bool
-    {
-        return ! empty($this->payload);
+        return $this->createdAt ?? gmdate('Y-m-d H:i:s');
     }
 
     public function isEmpty(): bool
@@ -113,16 +87,16 @@ final class Snapshot
     public function toArray(): array
     {
         return [
-            'id'           => $this->id,
-            'job_id'       => $this->jobId,
-            'supplier'     => $this->supplier,
-            'resource'     => $this->resource,
-            'type'         => $this->type,
-            'checksum'     => $this->checksum,
-            'record_count' => $this->recordCount,
-            'payload'      => $this->payload,
-            'metadata'     => $this->metadata,
-            'created_at'   => $this->createdAt,
+            'id'              => $this->id,
+            'job_id'          => $this->jobId,
+            'sequence_number' => $this->sequenceNumber,
+            'supplier'        => $this->supplier,
+            'resource'        => $this->resource,
+            'type'             => $this->type,
+            'checksum'        => $this->checksum,
+            'record_count'    => $this->recordCount,
+            'metadata'        => $this->metadata,
+            'created_at'      => $this->createdAt(),
         ];
     }
 }

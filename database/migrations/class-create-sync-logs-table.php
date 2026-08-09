@@ -13,25 +13,16 @@ defined('ABSPATH') || exit;
  */
 class CreateSyncLogsTable implements MigrationInterface
 {
-    /**
-     * Unique migration name.
-     */
     public function name(): string
     {
         return static::class;
     }
 
-    /**
-     * Migration version.
-     */
     public function version(): string
     {
         return '1.0.0';
     }
 
-    /**
-     * Execute migration.
-     */
     public function up(): void
     {
         global $wpdb;
@@ -45,9 +36,9 @@ class CreateSyncLogsTable implements MigrationInterface
 
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
-                sync_job_id BIGINT UNSIGNED NOT NULL,
+                sync_job_uuid CHAR(36) NOT NULL,
 
-                snapshot_id BIGINT UNSIGNED NULL,
+                snapshot_uuid CHAR(36) NULL,
 
                 level VARCHAR(20) NOT NULL,
 
@@ -63,9 +54,9 @@ class CreateSyncLogsTable implements MigrationInterface
 
                 PRIMARY KEY (id),
 
-                KEY idx_sync_job_id (sync_job_id),
+                KEY idx_sync_job_uuid (sync_job_uuid),
 
-                KEY idx_snapshot_id (snapshot_id),
+                KEY idx_snapshot_uuid (snapshot_uuid),
 
                 KEY idx_level (level),
 
