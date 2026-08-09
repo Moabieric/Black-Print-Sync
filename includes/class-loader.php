@@ -115,40 +115,15 @@ $this->loadAdminDependencies();
      * Boot database services.
      */
     private function bootDatabase(): void
-    {
-        /*
-         * Database migrations are disabled for now.
-         *
-         * We will enable this once all migration classes
-         * have been implemented.
-         */
+{
+    $schema = new SchemaManager();
 
-        /*
-        $schema = new SchemaManager();
+    $schema->register(
+        new CreateMigrationsTable()
+    );
 
-        $schema->register(
-            new CreateMigrationsTable()
-        );
-
-        $schema->register(
-            new CreateSyncJobsTable()
-        );
-
-        $schema->register(
-            new CreateSnapshotsTable()
-        );
-
-        $schema->register(
-            new CreateSnapshotPayloadsTable()
-        );
-
-        $schema->register(
-            new CreateSyncLogsTable()
-        );
-
-        $schema->migrate();
-        */
-    }
+    $schema->migrate();
+}
 
     /**
      * Boot plugin components.
