@@ -7,9 +7,12 @@ namespace BlackPrint\Commerce\Sync\Contracts;
 use BlackPrint\Commerce\Sync\Kernel\JobContext;
 use BlackPrint\Commerce\Sync\DTO\SupplierResponse;
 
-interface SupportsProducts
+interface IngestionStage
 {
-    public function products(
+    public function resource(): string;
+
+    public function fetch(
+        SupplierConnector $connector,
         JobContext $context
     ): SupplierResponse;
 }

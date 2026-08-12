@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace BlackPrint\Suppliers\Amrod;
 
-use BlackPrint\Sync\Contracts\SupplierConnector;
-use BlackPrint\Sync\Contracts\SupportsProducts;
-use BlackPrint\Sync\JobContext;
-use BlackPrint\Sync\ValueObjects\SupplierMetadata;
-use BlackPrint\Sync\ValueObjects\SupplierResponse;
+use BlackPrint\Commerce\Sync\Contracts\SupplierConnector;
+use BlackPrint\Commerce\Sync\Contracts\SupportsProducts;
+use BlackPrint\Commerce\Sync\Kernel\JobContext;
+use BlackPrint\Commerce\Sync\DTO\SupplierMetadata;
+use BlackPrint\Commerce\Sync\DTO\SupplierResponse;
 
 final class AmrodConnector implements
     SupplierConnector,
@@ -46,6 +46,12 @@ final class AmrodConnector implements
         $payload = $response->body();
 
         $json = wp_json_encode($payload);
+
+        if ($json === false) {
+            throw new \RuntimeException(
+                'Failed to encode supplier response payload.'
+            );
+        }
 
         return new SupplierResponse(
 

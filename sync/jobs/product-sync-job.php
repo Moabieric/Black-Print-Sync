@@ -1,26 +1,28 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce\Sync\Jobs;
 
 use BlackPrint\Commerce\Sync\Contracts\SyncJobInterface;
+use BlackPrint\Commerce\Sync\Entities\Snapshot;
+use BlackPrint\Commerce\Sync\Entities\SnapshotType;
 use BlackPrint\Commerce\Sync\Kernel\JobContext;
 use BlackPrint\Commerce\Sync\Kernel\SyncResult;
-use BlackPrint\Commerce\Sync\Stages\ProductsStage;
+use BlackPrint\Commerce\Sync\Registry\ConnectorRegistry;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
-use BlackPrint\Commerce\Sync\Storage\SnapshotPayloadRepository;
+use BlackPrint\Commerce\Sync\Stages\ProductsStage;
 
 final class ProductSyncJob implements SyncJobInterface
 {
     public function __construct(
-
-        private ProductsStage $stage,
-
-        private SnapshotRepository $snapshots,
-
-        private SnapshotPayloadRepository $payloads
-
-    ) {
-    }
+    private readonly ProductsStage $stage,
+    private readonly \BlackPrint\Commerce\Sync\Registry\ConnectorRegistry $connectors,
+    private readonly SnapshotRepository $snapshots,
+    private readonly SnapshotPayloadRepository $payloads
+) {
+}
 
     public function supplier(): string
     {
@@ -36,74 +38,121 @@ final class ProductSyncJob implements SyncJobInterface
         JobContext $context
     ): SyncResult {
 
-        $response = $this->stage->fetch($context);
+        /*
+         * Resolve the supplier connector through the registry.
+         */
+        $connector = $this->connectors->get(
+            $context->supplier()
+        );
+
+        /*
+         * Ingest supplier data through the canonical stage.
+         */
+        $response = $this->stage->fetch(
+            $connector,
+            $context
+        );
 
         $metadata = $response->metadata();
 
-        // Snapshot creation goes here
+        /*
+         * Create immutable snapshot metadata.
+         */
+        $snapshot = new Snapshot(
 
-        public function execute(
-    JobContext $context
-): SyncResult {
+            id: wp_generate_uuid4(),
 
-    $response = $this->stage->fetch($context);
+            jobId: $context->jobId(),
 
-    $meta = $response->metadata();
+            sequenceNumber: 1,
 
-    $snapshot = new Snapshot(
+            supplier: $metadata->supplier(),
 
-        id: wp_generate_uuid4(),
+            resource: $metadata->resource(),
 
-        jobId: $context->jobId(),
+            type: $this->snapshotType(
+                $context
+            ),
 
-        sequenceNumber: 1,
+            checksum: $metadata->checksum(),
 
-        supplier: $meta->supplier(),
+            recordCount: $metadata->recordCount(),
 
-        resource: $meta->resource(),
+            metadata: [
 
-        type: SnapshotType::MANUAL,
+                'duration_ms' => $metadata->durationMs(),
 
-        checksum: $meta->checksum(),
+                'payload_size' => $metadata->payloadSize(),
 
-        recordCount: $meta->recordCount(),
+                'requested_at' => $metadata->requestedAt(),
 
-        metadata: [
+                'etag' => $metadata->etag(),
 
-            'duration_ms' => $meta->durationMs(),
+                'cursor' => $metadata->cursor(),
 
-            'payload_size' => $meta->payloadSize(),
+                'extra' => $metadata->extra(),
 
-            'requested_at' => $meta->requestedAt(),
+            ]
 
-        ]
+        );
 
-    );
+        /*
+         * Persist snapshot metadata first.
+         */
+        $this->snapshots->create(
+            $snapshot
+        );
 
-    $this->snapshots->create($snapshot);
+        /*
+         * Persist the raw supplier payload separately.
+         */
+        $this->payloads->save(
 
-    $this->payloads->save(
+            $snapshot->id(),
 
-        $snapshot->id(),
+            $response->payload()
 
-        $response->payload()
+        );
 
-    );
+        return new SyncResult(
 
-    return new SyncResult(
+            success: true,
 
-        success: true,
+            fetched: $metadata->recordCount(),
 
-        processed: $meta->recordCount(),
+            processed: $metadata->recordCount(),
 
-        metadata: [
+            snapshotId: $snapshot->id(),
 
-            'snapshot_uuid' => $snapshot->id(),
+            metadata: [
 
-            'checksum' => $meta->checksum(),
+                'snapshot_uuid' => $snapshot->id(),
 
-        ]
+                'checksum' => $metadata->checksum(),
 
-    );
-}
+                'supplier' => $metadata->supplier(),
+
+                'resource' => $metadata->resource(),
+
+            ]
+
+        );
+    }
+
+    private function snapshotType(
+        JobContext $context
+    ): string {
+
+        return match ($context->jobType()) {
+
+            'daily' => SnapshotType::FULL,
+
+            'scheduled' => SnapshotType::INCREMENTAL,
+
+            'replay' => SnapshotType::REPLAY,
+
+            default => SnapshotType::MANUAL,
+
+        };
+    }
 }

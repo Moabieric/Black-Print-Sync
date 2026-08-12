@@ -2,62 +2,141 @@
 
 declare(strict_types=1);
 
-namespace BlackPrint\Sync;
+namespace BlackPrint\Commerce\Sync\Services;
 
-use BlackPrint\Sync\Registry\ConnectorRegistry;
-use BlackPrint\Sync\Registry\StageRegistry;
-use BlackPrint\Sync\Stages\ProductsStage;
-
+use BlackPrint\Commerce\Sync\Jobs\ProductSyncJob;
+use BlackPrint\Commerce\Sync\Kernel\JobDispatcher;
+use BlackPrint\Commerce\Sync\Kernel\JobRunner;
+use BlackPrint\Commerce\Sync\Kernel\SyncManager;
+use BlackPrint\Commerce\Sync\Registry\ConnectorRegistry;
+use BlackPrint\Commerce\Sync\Registry\StageRegistry;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
+use BlackPrint\Commerce\Sync\Stages\ProductsStage;
 use BlackPrint\Suppliers\Amrod\AmrodConfig;
 use BlackPrint\Suppliers\Amrod\AmrodConnector;
 use BlackPrint\Suppliers\Amrod\AmrodHttpClient;
 
-use BlackPrint\Sync\Repositories\SnapshotRepository;
-use BlackPrint\Sync\Repositories\SnapshotPayloadRepository;
-use BlackPrint\Sync\Services\SyncManager;
-
 final class SyncServiceProvider
 {
-    public function register(): SyncPipeline
+    public function register(): SyncManager
     {
-        $connectors = new ConnectorRegistry();
+        /*
+         * ---------------------------------------------------------
+         * Connector Registry
+         * ---------------------------------------------------------
+         */
 
-        $stages = new StageRegistry();
+        $connectors = new ConnectorRegistry();
 
         $config = new AmrodConfig(
 
-            baseUrl: get_option('bp_amrod_base_url', ''),
+            baseUrl: get_option(
+                'bp_amrod_base_url',
+                ''
+            ),
 
-            username: get_option('bp_amrod_username', ''),
+            username: get_option(
+                'bp_amrod_username',
+                ''
+            ),
 
-            password: get_option('bp_amrod_password', '')
+            password: get_option(
+                'bp_amrod_password',
+                ''
+            )
 
         );
 
-        $httpClient = new AmrodHttpClient($config);
+        $httpClient = new AmrodHttpClient(
+            $config
+        );
 
-        $connector = new AmrodConnector($httpClient);
+        $amrodConnector = new AmrodConnector(
+            $httpClient
+        );
 
-        $connectors->register($connector);
+        $connectors->register(
+            $amrodConnector
+        );
+
+
+        /*
+         * ---------------------------------------------------------
+         * Stage Registry
+         * ---------------------------------------------------------
+         */
+
+        $stages = new StageRegistry();
+
+        $productsStage = new ProductsStage();
 
         $stages->register(
-
-            new ProductsStage()
-
+            $productsStage
         );
 
-        return new SyncPipeline(
 
-            syncManager: new SyncManager(),
+        /*
+ * ---------------------------------------------------------
+ * Persistence
+ * ---------------------------------------------------------
+ */
 
-            stages: $stages,
+global $wpdb;
 
-            connectors: $connectors,
+$snapshots = new SnapshotRepository(
+    $wpdb
+);
 
-            snapshots: new SnapshotRepository(),
+$payloads = new SnapshotPayloadRepository(
+    $wpdb
+);
 
-            payloads: new SnapshotPayloadRepository()
 
+        /*
+         * ---------------------------------------------------------
+         * Job Dispatcher
+         * ---------------------------------------------------------
+         */
+
+        $dispatcher = new JobDispatcher();
+
+        $productJob = new ProductSyncJob(
+
+    stage: $productsStage,
+
+    connectors: $connectors,
+
+    snapshots: $snapshots,
+
+    payloads: $payloads
+
+);
+
+        $dispatcher->register(
+            $productJob
+        );
+
+
+        /*
+         * ---------------------------------------------------------
+         * Runner
+         * ---------------------------------------------------------
+         */
+
+        $runner = new JobRunner(
+            $dispatcher
+        );
+
+
+        /*
+         * ---------------------------------------------------------
+         * Sync Manager
+         * ---------------------------------------------------------
+         */
+
+        return new SyncManager(
+            $runner
         );
     }
 }
