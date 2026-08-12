@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace BlackPrint\Core;
 
-use BlackPrint\Sync\SyncPipeline;
-use BlackPrint\Sync\SyncServiceProvider;
+use BlackPrint\Commerce\Sync\Kernel\SyncManager;
+use BlackPrint\Commerce\Sync\Services\SyncServiceProvider;
 
 final class Plugin
 {
     private static ?self $instance = null;
 
-    private SyncPipeline $syncPipeline;
+    private SyncManager $syncManager;
 
     private function __construct()
     {
@@ -29,18 +29,13 @@ final class Plugin
 
     private function boot(): void
     {
-        $this->bootSync();
-    }
-
-    private function bootSync(): void
-    {
         $provider = new SyncServiceProvider();
 
-        $this->syncPipeline = $provider->register();
+        $this->syncManager = $provider->register();
     }
 
-    public function syncPipeline(): SyncPipeline
+    public function syncManager(): SyncManager
     {
-        return $this->syncPipeline;
+        return $this->syncManager;
     }
 }
