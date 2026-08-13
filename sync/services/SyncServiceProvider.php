@@ -11,12 +11,15 @@ use BlackPrint\Commerce\Sync\Kernel\SyncManager;
 use BlackPrint\Commerce\Sync\Registry\ConnectorRegistry;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
+use BlackPrint\Commerce\Sync\Repositories\SyncJobRepository;
 use BlackPrint\Commerce\Sync\Stages\ProductsStage;
 use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Api_Client;
 use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Auth;
 use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Config;
 use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Product_Service;
 use BlackPrint\Commerce\Suppliers\Amrod\AmrodConnector;
+
+defined('ABSPATH') || exit;
 
 final class SyncServiceProvider
 {
@@ -33,22 +36,10 @@ final class SyncServiceProvider
 
         $connectors = new ConnectorRegistry();
 
-
         /*
         |--------------------------------------------------------------------------
         | Amrod Supplier Stack
         |--------------------------------------------------------------------------
-        |
-        | Configuration
-        |      ↓
-        | Authentication
-        |      ↓
-        | API Client
-        |      ↓
-        | Product Service
-        |      ↓
-        | Sync Connector
-        |
         */
 
         $config = new Amrod_Config();
@@ -74,7 +65,6 @@ final class SyncServiceProvider
             $amrodConnector
         );
 
-
         /*
         |--------------------------------------------------------------------------
         | Ingestion Stage
@@ -82,7 +72,6 @@ final class SyncServiceProvider
         */
 
         $productsStage = new ProductsStage();
-
 
         /*
         |--------------------------------------------------------------------------
@@ -92,6 +81,10 @@ final class SyncServiceProvider
 
         global $wpdb;
 
+        $jobs = new SyncJobRepository(
+            $wpdb
+        );
+
         $snapshots = new SnapshotRepository(
             $wpdb
         );
@@ -99,7 +92,6 @@ final class SyncServiceProvider
         $payloads = new SnapshotPayloadRepository(
             $wpdb
         );
-
 
         /*
         |--------------------------------------------------------------------------
@@ -113,13 +105,13 @@ final class SyncServiceProvider
             stage: $productsStage,
             connectors: $connectors,
             snapshots: $snapshots,
-            payloads: $payloads
+            payloads: $payloads,
+            db: $wpdb
         );
 
         $dispatcher->register(
             $productJob
         );
-
 
         /*
         |--------------------------------------------------------------------------
@@ -128,9 +120,9 @@ final class SyncServiceProvider
         */
 
         $runner = new JobRunner(
-            $dispatcher
+            dispatcher: $dispatcher,
+            jobs: $jobs
         );
-
 
         /*
         |--------------------------------------------------------------------------
@@ -139,7 +131,8 @@ final class SyncServiceProvider
         */
 
         return new SyncManager(
-            $runner
+            runner: $runner,
+            jobs: $jobs
         );
     }
 }

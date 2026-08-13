@@ -14,13 +14,16 @@ use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
 use BlackPrint\Commerce\Sync\Stages\ProductsStage;
 
+defined('ABSPATH') || exit;
+
 final class ProductSyncJob implements SyncJobInterface
 {
     public function __construct(
         private readonly ProductsStage $stage,
         private readonly ConnectorRegistry $connectors,
         private readonly SnapshotRepository $snapshots,
-        private readonly SnapshotPayloadRepository $payloads
+        private readonly SnapshotPayloadRepository $payloads,
+        private readonly \wpdb $db
     ) {
     }
 
@@ -129,28 +132,67 @@ final class ProductSyncJob implements SyncJobInterface
 
         /*
         |--------------------------------------------------------------------------
-        | Persist Snapshot Metadata
+        | Persist Immutable Snapshot + Payload Atomically
         |--------------------------------------------------------------------------
+        |
+        | A snapshot and its raw payload form one immutable ingestion record.
+        | Neither may persist without the other.
+        |
         */
 
-        $this->snapshots->create(
-            $snapshot
+        $this->db->query(
+            'START TRANSACTION'
         );
 
+        try {
 
-        /*
-        |--------------------------------------------------------------------------
-        | Persist Immutable Raw Payload
-        |--------------------------------------------------------------------------
-        */
+            /*
+            |--------------------------------------------------------------------------
+            | Persist Snapshot Metadata
+            |--------------------------------------------------------------------------
+            */
 
-        $this->payloads->save(
+            $this->snapshots->create(
+                $snapshot
+            );
 
-            $snapshot->id(),
 
-            $response->payload()
+            /*
+            |--------------------------------------------------------------------------
+            | Persist Immutable Raw Payload
+            |--------------------------------------------------------------------------
+            */
 
-        );
+            $this->payloads->save(
+                $snapshot->id(),
+                $response->payload()
+            );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Commit Atomic Ingestion
+            |--------------------------------------------------------------------------
+            */
+
+            $this->db->query(
+                'COMMIT'
+            );
+
+        } catch (\Throwable $e) {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Roll Back Partial Ingestion
+            |--------------------------------------------------------------------------
+            */
+
+            $this->db->query(
+                'ROLLBACK'
+            );
+
+            throw $e;
+        }
 
 
         /*
@@ -187,26 +229,27 @@ final class ProductSyncJob implements SyncJobInterface
     }
 
     private function snapshotType(
-    JobContext $context
-): string {
+        JobContext $context
+    ): string {
 
-    return match ($context->jobType()) {
+        return match ($context->jobType()) {
 
-        'daily' =>
-            SnapshotType::FULL,
+            'daily' =>
+                SnapshotType::FULL,
 
-        'scheduled' =>
-            SnapshotType::INCREMENTAL,
+            'scheduled' =>
+                SnapshotType::INCREMENTAL,
 
-        'manual' =>
-            SnapshotType::MANUAL,
+            'manual' =>
+                SnapshotType::MANUAL,
 
-        default => throw new \RuntimeException(
-            sprintf(
-                'Unsupported product snapshot job type: %s',
-                $context->jobType()
-            )
-        ),
+            default => throw new \RuntimeException(
+                sprintf(
+                    'Unsupported product snapshot job type: %s',
+                    $context->jobType()
+                )
+            ),
 
-    };
+        };
+    }
 }
