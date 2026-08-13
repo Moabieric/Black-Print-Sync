@@ -9,51 +9,65 @@ use BlackPrint\Commerce\Sync\Kernel\JobDispatcher;
 use BlackPrint\Commerce\Sync\Kernel\JobRunner;
 use BlackPrint\Commerce\Sync\Kernel\SyncManager;
 use BlackPrint\Commerce\Sync\Registry\ConnectorRegistry;
-use BlackPrint\Commerce\Sync\Registry\StageRegistry;
-use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
 use BlackPrint\Commerce\Sync\Stages\ProductsStage;
-use BlackPrint\Suppliers\Amrod\AmrodConfig;
-use BlackPrint\Suppliers\Amrod\AmrodConnector;
-use BlackPrint\Suppliers\Amrod\AmrodHttpClient;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Api_Client;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Auth;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Config;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Product_Service;
+use BlackPrint\Commerce\Suppliers\Amrod\AmrodConnector;
 
 final class SyncServiceProvider
 {
+    /**
+     * Register the BlackPrint synchronization runtime.
+     */
     public function register(): SyncManager
     {
         /*
-         * ---------------------------------------------------------
-         * Connector Registry
-         * ---------------------------------------------------------
-         */
+        |--------------------------------------------------------------------------
+        | Connector Registry
+        |--------------------------------------------------------------------------
+        */
 
         $connectors = new ConnectorRegistry();
 
-        $config = new AmrodConfig(
 
-            baseUrl: get_option(
-                'bp_amrod_base_url',
-                ''
-            ),
+        /*
+        |--------------------------------------------------------------------------
+        | Amrod Supplier Stack
+        |--------------------------------------------------------------------------
+        |
+        | Configuration
+        |      ↓
+        | Authentication
+        |      ↓
+        | API Client
+        |      ↓
+        | Product Service
+        |      ↓
+        | Sync Connector
+        |
+        */
 
-            username: get_option(
-                'bp_amrod_username',
-                ''
-            ),
+        $config = new Amrod_Config();
 
-            password: get_option(
-                'bp_amrod_password',
-                ''
-            )
-
-        );
-
-        $httpClient = new AmrodHttpClient(
+        $auth = new Amrod_Auth(
             $config
         );
 
+        $apiClient = new Amrod_Api_Client(
+            $auth,
+            $config
+        );
+
+        $products = new Amrod_Product_Service(
+            $apiClient
+        );
+
         $amrodConnector = new AmrodConnector(
-            $httpClient
+            $products
         );
 
         $connectors->register(
@@ -62,56 +76,45 @@ final class SyncServiceProvider
 
 
         /*
-         * ---------------------------------------------------------
-         * Stage Registry
-         * ---------------------------------------------------------
-         */
-
-        $stages = new StageRegistry();
+        |--------------------------------------------------------------------------
+        | Ingestion Stage
+        |--------------------------------------------------------------------------
+        */
 
         $productsStage = new ProductsStage();
 
-        $stages->register(
-            $productsStage
+
+        /*
+        |--------------------------------------------------------------------------
+        | Persistence
+        |--------------------------------------------------------------------------
+        */
+
+        global $wpdb;
+
+        $snapshots = new SnapshotRepository(
+            $wpdb
+        );
+
+        $payloads = new SnapshotPayloadRepository(
+            $wpdb
         );
 
 
         /*
- * ---------------------------------------------------------
- * Persistence
- * ---------------------------------------------------------
- */
-
-global $wpdb;
-
-$snapshots = new SnapshotRepository(
-    $wpdb
-);
-
-$payloads = new SnapshotPayloadRepository(
-    $wpdb
-);
-
-
-        /*
-         * ---------------------------------------------------------
-         * Job Dispatcher
-         * ---------------------------------------------------------
-         */
+        |--------------------------------------------------------------------------
+        | Job Dispatcher
+        |--------------------------------------------------------------------------
+        */
 
         $dispatcher = new JobDispatcher();
 
         $productJob = new ProductSyncJob(
-
-    stage: $productsStage,
-
-    connectors: $connectors,
-
-    snapshots: $snapshots,
-
-    payloads: $payloads
-
-);
+            stage: $productsStage,
+            connectors: $connectors,
+            snapshots: $snapshots,
+            payloads: $payloads
+        );
 
         $dispatcher->register(
             $productJob
@@ -119,10 +122,10 @@ $payloads = new SnapshotPayloadRepository(
 
 
         /*
-         * ---------------------------------------------------------
-         * Runner
-         * ---------------------------------------------------------
-         */
+        |--------------------------------------------------------------------------
+        | Job Runner
+        |--------------------------------------------------------------------------
+        */
 
         $runner = new JobRunner(
             $dispatcher
@@ -130,10 +133,10 @@ $payloads = new SnapshotPayloadRepository(
 
 
         /*
-         * ---------------------------------------------------------
-         * Sync Manager
-         * ---------------------------------------------------------
-         */
+        |--------------------------------------------------------------------------
+        | Sync Manager
+        |--------------------------------------------------------------------------
+        */
 
         return new SyncManager(
             $runner

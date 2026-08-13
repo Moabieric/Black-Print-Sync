@@ -17,12 +17,12 @@ use BlackPrint\Commerce\Sync\Stages\ProductsStage;
 final class ProductSyncJob implements SyncJobInterface
 {
     public function __construct(
-    private readonly ProductsStage $stage,
-    private readonly \BlackPrint\Commerce\Sync\Registry\ConnectorRegistry $connectors,
-    private readonly SnapshotRepository $snapshots,
-    private readonly SnapshotPayloadRepository $payloads
-) {
-}
+        private readonly ProductsStage $stage,
+        private readonly ConnectorRegistry $connectors,
+        private readonly SnapshotRepository $snapshots,
+        private readonly SnapshotPayloadRepository $payloads
+    ) {
+    }
 
     public function supplier(): string
     {
@@ -39,15 +39,41 @@ final class ProductSyncJob implements SyncJobInterface
     ): SyncResult {
 
         /*
-         * Resolve the supplier connector through the registry.
-         */
+        |--------------------------------------------------------------------------
+        | Replay Protection
+        |--------------------------------------------------------------------------
+        |
+        | Replay is intentionally not part of the supplier ingestion path.
+        |
+        | A future replay implementation must load an existing immutable
+        | snapshot and process that payload without contacting the supplier.
+        |
+        */
+
+        if ($context->jobType() === 'replay') {
+            throw new \RuntimeException(
+                'Product replay is not implemented in the supplier ingestion job.'
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Resolve Supplier Connector
+        |--------------------------------------------------------------------------
+        */
+
         $connector = $this->connectors->get(
             $context->supplier()
         );
 
+
         /*
-         * Ingest supplier data through the canonical stage.
-         */
+        |--------------------------------------------------------------------------
+        | Fetch Raw Supplier Data
+        |--------------------------------------------------------------------------
+        */
+
         $response = $this->stage->fetch(
             $connector,
             $context
@@ -55,9 +81,13 @@ final class ProductSyncJob implements SyncJobInterface
 
         $metadata = $response->metadata();
 
+
         /*
-         * Create immutable snapshot metadata.
-         */
+        |--------------------------------------------------------------------------
+        | Create Immutable Snapshot
+        |--------------------------------------------------------------------------
+        */
+
         $snapshot = new Snapshot(
 
             id: wp_generate_uuid4(),
@@ -96,16 +126,24 @@ final class ProductSyncJob implements SyncJobInterface
 
         );
 
+
         /*
-         * Persist snapshot metadata first.
-         */
+        |--------------------------------------------------------------------------
+        | Persist Snapshot Metadata
+        |--------------------------------------------------------------------------
+        */
+
         $this->snapshots->create(
             $snapshot
         );
 
+
         /*
-         * Persist the raw supplier payload separately.
-         */
+        |--------------------------------------------------------------------------
+        | Persist Immutable Raw Payload
+        |--------------------------------------------------------------------------
+        */
+
         $this->payloads->save(
 
             $snapshot->id(),
@@ -113,6 +151,13 @@ final class ProductSyncJob implements SyncJobInterface
             $response->payload()
 
         );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Return Result
+        |--------------------------------------------------------------------------
+        */
 
         return new SyncResult(
 
@@ -134,25 +179,34 @@ final class ProductSyncJob implements SyncJobInterface
 
                 'resource' => $metadata->resource(),
 
+                'snapshot_type' => $snapshot->type(),
+
             ]
 
         );
     }
 
     private function snapshotType(
-        JobContext $context
-    ): string {
+    JobContext $context
+): string {
 
-        return match ($context->jobType()) {
+    return match ($context->jobType()) {
 
-            'daily' => SnapshotType::FULL,
+        'daily' =>
+            SnapshotType::FULL,
 
-            'scheduled' => SnapshotType::INCREMENTAL,
+        'scheduled' =>
+            SnapshotType::INCREMENTAL,
 
-            'replay' => SnapshotType::REPLAY,
+        'manual' =>
+            SnapshotType::MANUAL,
 
-            default => SnapshotType::MANUAL,
+        default => throw new \RuntimeException(
+            sprintf(
+                'Unsupported product snapshot job type: %s',
+                $context->jobType()
+            )
+        ),
 
-        };
-    }
+    };
 }

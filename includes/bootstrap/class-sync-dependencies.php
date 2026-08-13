@@ -136,10 +136,10 @@ require_once BP_COMMERCE_PATH
     . 'sync/repositories/class-snapshot-repository.php';
 
 require_once BP_COMMERCE_PATH
-    . 'sync/repositories/class-sync-log-repository.php';
+    . 'sync/repositories/class-snapshot-payload-repository.php';
 
 require_once BP_COMMERCE_PATH
-    . 'sync/storage/class-snapshot-payload-repository.php';
+    . 'sync/repositories/class-sync-log-repository.php';
 
 
 /*

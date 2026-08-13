@@ -1,38 +1,48 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce;
 
 defined('ABSPATH') || exit;
 
-use BlackPrint\Commerce\Database\SchemaManager;
 use BlackPrint\Commerce\Database\Migrations\CreateMigrationsTable;
-use BlackPrint\Commerce\Database\Migrations\CreateSyncJobsTable;
-use BlackPrint\Commerce\Database\Migrations\CreateSnapshotsTable;
 use BlackPrint\Commerce\Database\Migrations\CreateSnapshotPayloadsTable;
+use BlackPrint\Commerce\Database\Migrations\CreateSnapshotsTable;
+use BlackPrint\Commerce\Database\Migrations\CreateSyncJobsTable;
 use BlackPrint\Commerce\Database\Migrations\CreateSyncLogsTable;
+use BlackPrint\Commerce\Database\SchemaManager;
+use BlackPrint\Commerce\Sync\Kernel\SyncManager;
+use BlackPrint\Commerce\Sync\Services\SyncServiceProvider;
 
 /**
  * BlackPrint Commerce Plugin Loader.
  *
  * Responsible for:
  *
- * - Loading plugin dependencies
- * - Booting database services
- * - Booting runtime components
+ * - Loading plugin dependencies.
+ * - Booting database services.
+ * - Booting runtime components.
  *
  * This class acts as the composition root of BlackPrint OS.
  */
-class Loader
+final class Loader
 {
     /**
      * Singleton instance.
      */
-    private static ?Loader $instance = null;
+    private static ?self $instance = null;
+
+    /**
+     * Sync runtime manager.
+     */
+    private SyncManager $syncManager;
+
 
     /**
      * Get singleton instance.
      */
-    public static function instance(): Loader
+    public static function instance(): self
     {
         if (self::$instance === null) {
             self::$instance = new self();
@@ -40,6 +50,7 @@ class Loader
 
         return self::$instance;
     }
+
 
     /**
      * Constructor.
@@ -51,21 +62,23 @@ class Loader
         $this->boot();
     }
 
+
     /**
      * Load all plugin dependencies.
      */
     private function loadDependencies(): void
-    {
-        $this->loadCoreDependencies();
+{
+    $this->loadCoreDependencies();
 
-$this->loadSupplierDependencies();
+    $this->loadSupplierDependencies();
 
-$this->loadDatabaseDependencies();
+    $this->loadDatabaseDependencies();
 
-$this->loadSyncDependencies();
+    $this->loadSyncDependencies();
 
-$this->loadAdminDependencies();
-    }
+    $this->loadAdminDependencies();
+}
+
 
     /**
      * Load core dependencies.
@@ -76,6 +89,7 @@ $this->loadAdminDependencies();
             . 'includes/bootstrap/class-core-dependencies.php';
     }
 
+
     /**
      * Load supplier dependencies.
      */
@@ -85,6 +99,7 @@ $this->loadAdminDependencies();
             . 'includes/bootstrap/class-supplier-dependencies.php';
     }
 
+
     /**
      * Load database dependencies.
      */
@@ -93,14 +108,17 @@ $this->loadAdminDependencies();
         require_once BP_COMMERCE_PATH
             . 'includes/bootstrap/class-database-dependencies.php';
     }
-/**
+
+
+    /**
      * Load sync dependencies.
      */
     private function loadSyncDependencies(): void
-{
-    require_once BP_COMMERCE_PATH
-        . 'includes/bootstrap/class-sync-dependencies.php';
-}
+    {
+        require_once BP_COMMERCE_PATH
+            . 'includes/bootstrap/class-sync-dependencies.php';
+    }
+
 
     /**
      * Load admin dependencies.
@@ -111,35 +129,6 @@ $this->loadAdminDependencies();
             . 'includes/bootstrap/class-admin-dependencies.php';
     }
 
-   /**
- * Boot database services.
- */
-private function bootDatabase(): void
-{
-    $schema = new SchemaManager();
-
-    $schema->register(
-        new CreateMigrationsTable()
-    );
-
-    $schema->register(
-        new CreateSyncJobsTable()
-    );
-
-    $schema->register(
-        new CreateSnapshotsTable()
-    );
-
-    $schema->register(
-        new CreateSnapshotPayloadsTable()
-    );
-
-    $schema->register(
-        new CreateSyncLogsTable()
-    );
-
-    $schema->migrate();
-}
 
     /**
      * Boot plugin components.
@@ -148,6 +137,68 @@ private function bootDatabase(): void
     {
         $this->bootDatabase();
 
+        $this->bootSync();
+
+        $this->bootAdmin();
+    }
+
+
+    /**
+     * Boot database services.
+     */
+    private function bootDatabase(): void
+    {
+        $schema = new SchemaManager();
+
+        $schema->register(
+            new CreateMigrationsTable()
+        );
+
+        $schema->register(
+            new CreateSyncJobsTable()
+        );
+
+        $schema->register(
+            new CreateSnapshotsTable()
+        );
+
+        $schema->register(
+            new CreateSnapshotPayloadsTable()
+        );
+
+        $schema->register(
+            new CreateSyncLogsTable()
+        );
+
+        $schema->migrate();
+    }
+
+
+    /**
+     * Boot the synchronization runtime.
+     */
+    private function bootSync(): void
+    {
+        $provider = new SyncServiceProvider();
+
+        $this->syncManager = $provider->register();
+    }
+
+
+    /**
+     * Boot admin components.
+     */
+    private function bootAdmin(): void
+    {
         new Admin();
+    }
+
+
+    /**
+     * Get the synchronization manager.
+     */
+    public function syncManager(): SyncManager
+    {
+        return $this->syncManager;
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce\Sync\Repositories;
 
 use BlackPrint\Commerce\Sync\Contracts\SnapshotRepositoryInterface;
@@ -14,12 +16,9 @@ defined('ABSPATH') || exit;
  */
 class SnapshotRepository implements SnapshotRepositoryInterface
 {
-    private \wpdb $db;
-
     public function __construct(
-        \wpdb $db
+        private \wpdb $db
     ) {
-        $this->db = $db;
     }
 
     /**
@@ -31,13 +30,15 @@ class SnapshotRepository implements SnapshotRepositoryInterface
     }
 
     /**
-     * Create a snapshot.
+     * Create an immutable snapshot.
+     *
+     * @throws \RuntimeException When persistence fails.
      */
     public function create(
         Snapshot $snapshot
     ): int {
 
-        $this->db->insert(
+        $result = $this->db->insert(
             $this->table(),
             [
                 'uuid'            => $snapshot->id(),
@@ -54,6 +55,17 @@ class SnapshotRepository implements SnapshotRepositoryInterface
                 'created_at'      => $snapshot->createdAt(),
             ]
         );
+
+        if ($result === false) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Failed to persist snapshot: %s',
+                    $this->db->last_error !== ''
+                        ? $this->db->last_error
+                        : 'Unknown database error.'
+                )
+            );
+        }
 
         return (int) $this->db->insert_id;
     }
@@ -73,7 +85,7 @@ class SnapshotRepository implements SnapshotRepositoryInterface
             ARRAY_A
         );
 
-        if (! $row) {
+        if (! is_array($row)) {
             return null;
         }
 
@@ -101,6 +113,10 @@ class SnapshotRepository implements SnapshotRepositoryInterface
             ),
             ARRAY_A
         );
+
+        if (! is_array($rows)) {
+            return [];
+        }
 
         return array_map(
             fn(array $row): Snapshot => $this->hydrate($row),
@@ -130,16 +146,16 @@ class SnapshotRepository implements SnapshotRepositoryInterface
         }
 
         return new Snapshot(
-            id: $row['uuid'],
-            jobId: $row['sync_job_uuid'],
+            id: (string) $row['uuid'],
+            jobId: (string) $row['sync_job_uuid'],
             sequenceNumber: (int) $row['sequence_number'],
-            supplier: $row['supplier'],
-            resource: $row['resource'],
-            type: $row['type'],
-            checksum: $row['checksum'],
+            supplier: (string) $row['supplier'],
+            resource: (string) $row['resource'],
+            type: (string) $row['type'],
+            checksum: (string) $row['checksum'],
             recordCount: (int) $row['records_count'],
             metadata: $metadata,
-            createdAt: $row['created_at']
+            createdAt: (string) $row['created_at']
         );
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce\Sync\Repositories;
 
 use BlackPrint\Commerce\Sync\Contracts\SnapshotPayloadRepositoryInterface;
@@ -9,17 +11,14 @@ defined('ABSPATH') || exit;
 /**
  * Snapshot Payload Repository.
  *
- * Stores and retrieves raw supplier payloads associated
- * with immutable synchronization snapshots.
+ * Stores and retrieves immutable raw supplier payloads
+ * associated with synchronization snapshots.
  */
 class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
 {
-    private \wpdb $db;
-
     public function __construct(
-        \wpdb $db
+        private \wpdb $db
     ) {
-        $this->db = $db;
     }
 
     /**
@@ -31,17 +30,24 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
     }
 
     /**
-     * Store a snapshot payload.
+     * Store an immutable snapshot payload.
      *
      * Payloads are JSON encoded and gzip compressed
      * before being persisted.
+     *
+     * An existing payload must never be overwritten.
+     *
+     * @throws \RuntimeException When encoding, compression,
+     *                           or persistence fails.
      */
     public function save(
         string $snapshotUuid,
         array $payload
     ): void {
 
-        $json = wp_json_encode($payload);
+        $json = wp_json_encode(
+            $payload
+        );
 
         if ($json === false) {
             throw new \RuntimeException(
@@ -49,7 +55,9 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
             );
         }
 
-        $compressed = gzencode($json);
+        $compressed = gzencode(
+            $json
+        );
 
         if ($compressed === false) {
             throw new \RuntimeException(
@@ -57,7 +65,7 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
             );
         }
 
-        $this->db->replace(
+        $result = $this->db->insert(
             $this->table(),
             [
                 'snapshot_uuid' => $snapshotUuid,
@@ -74,6 +82,17 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
                 '%s',
             ]
         );
+
+        if ($result === false) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Failed to persist immutable snapshot payload: %s',
+                    $this->db->last_error !== ''
+                        ? $this->db->last_error
+                        : 'Unknown database error.'
+                )
+            );
+        }
     }
 
     /**
@@ -95,15 +114,17 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
             ARRAY_A
         );
 
-        if (! $row) {
+        if (! is_array($row)) {
             return null;
         }
 
-        $payload = $row['payload'];
+        $payload = (string) $row['payload'];
 
         if ($row['compression'] === 'gzip') {
 
-            $payload = gzdecode($payload);
+            $payload = gzdecode(
+                $payload
+            );
 
             if ($payload === false) {
                 throw new \RuntimeException(
@@ -128,12 +149,17 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
 
     /**
      * Delete a snapshot payload.
+     *
+     * Payload deletion is intentionally retained only for
+     * administrative or recovery operations outside normal
+     * ingestion. Normal synchronization never overwrites or
+     * deletes an immutable payload.
      */
     public function delete(
         string $snapshotUuid
     ): void {
 
-        $this->db->delete(
+        $result = $this->db->delete(
             $this->table(),
             [
                 'snapshot_uuid' => $snapshotUuid,
@@ -142,5 +168,16 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
                 '%s',
             ]
         );
+
+        if ($result === false) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Failed to delete snapshot payload: %s',
+                    $this->db->last_error !== ''
+                        ? $this->db->last_error
+                        : 'Unknown database error.'
+                )
+            );
+        }
     }
 }
