@@ -14,10 +14,10 @@ defined('ABSPATH') || exit;
  * Stores and retrieves immutable raw supplier payloads
  * associated with synchronization snapshots.
  */
-class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
+final class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
 {
     public function __construct(
-        private \wpdb $db
+        private readonly \wpdb $db
     ) {
     }
 
@@ -96,7 +96,7 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
     }
 
     /**
-     * Retrieve and decompress a snapshot payload.
+     * Retrieve and decompress an immutable snapshot payload.
      */
     public function find(
         string $snapshotUuid
@@ -145,39 +145,5 @@ class SnapshotPayloadRepository implements SnapshotPayloadRepositoryInterface
         }
 
         return $decoded;
-    }
-
-    /**
-     * Delete a snapshot payload.
-     *
-     * Payload deletion is intentionally retained only for
-     * administrative or recovery operations outside normal
-     * ingestion. Normal synchronization never overwrites or
-     * deletes an immutable payload.
-     */
-    public function delete(
-        string $snapshotUuid
-    ): void {
-
-        $result = $this->db->delete(
-            $this->table(),
-            [
-                'snapshot_uuid' => $snapshotUuid,
-            ],
-            [
-                '%s',
-            ]
-        );
-
-        if ($result === false) {
-            throw new \RuntimeException(
-                sprintf(
-                    'Failed to delete snapshot payload: %s',
-                    $this->db->last_error !== ''
-                        ? $this->db->last_error
-                        : 'Unknown database error.'
-                )
-            );
-        }
     }
 }

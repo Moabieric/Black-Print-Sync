@@ -213,6 +213,8 @@ final class ProductSyncJob implements SyncJobInterface
 
             metadata: [
 
+                'job_uuid' => $context->jobId(),
+
                 'snapshot_uuid' => $snapshot->id(),
 
                 'checksum' => $metadata->checksum(),
@@ -222,6 +224,8 @@ final class ProductSyncJob implements SyncJobInterface
                 'resource' => $metadata->resource(),
 
                 'snapshot_type' => $snapshot->type(),
+
+                'endpoint' => $metadata->extra()['endpoint'] ?? null,
 
             ]
 
