@@ -18,6 +18,7 @@ use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Auth;
 use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Config;
 use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Product_Service;
 use BlackPrint\Commerce\Suppliers\Amrod\AmrodConnector;
+use BlackPrint\Commerce\Sync\Replay\SnapshotIntegrityVerifier;
 
 defined('ABSPATH') || exit;
 
@@ -95,6 +96,21 @@ final class SyncServiceProvider
 
         /*
         |--------------------------------------------------------------------------
+        | Snapshot Integrity
+        |--------------------------------------------------------------------------
+        |
+        | Read-only verification of immutable snapshots and their
+        | associated raw payloads.
+        |
+        */
+
+        $integrityVerifier = new SnapshotIntegrityVerifier(
+            snapshots: $snapshots,
+            payloads: $payloads
+        );
+
+        /*
+        |--------------------------------------------------------------------------
         | Job Dispatcher
         |--------------------------------------------------------------------------
         */
@@ -132,7 +148,8 @@ final class SyncServiceProvider
 
         return new SyncManager(
             runner: $runner,
-            jobs: $jobs
+            jobs: $jobs,
+            integrityVerifier: $integrityVerifier
         );
     }
 }

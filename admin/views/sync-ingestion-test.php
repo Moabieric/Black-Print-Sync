@@ -43,6 +43,66 @@ $error = isset($_GET['errors'])
     )
     : '';
 
+    $integrityStatus = isset($_GET['bp_integrity'])
+    ? sanitize_key(
+        wp_unslash(
+            $_GET['bp_integrity']
+        )
+    )
+    : '';
+
+$integrityErrors = isset($_GET['integrity_errors'])
+    ? sanitize_text_field(
+        wp_unslash(
+            $_GET['integrity_errors']
+        )
+    )
+    : '';
+
+$snapshotFound = isset($_GET['snapshot_found'])
+    && $_GET['snapshot_found'] === '1';
+
+$payloadFound = isset($_GET['payload_found'])
+    && $_GET['payload_found'] === '1';
+
+$recordsExpected = isset($_GET['records_expected'])
+    ? sanitize_text_field(
+        wp_unslash(
+            $_GET['records_expected']
+        )
+    )
+    : '';
+
+$recordsActual = isset($_GET['records_actual'])
+    ? sanitize_text_field(
+        wp_unslash(
+            $_GET['records_actual']
+        )
+    )
+    : '';
+
+$recordsValid = isset($_GET['records_valid'])
+    && $_GET['records_valid'] === '1';
+
+$checksumExpected = isset($_GET['checksum_expected'])
+    ? sanitize_text_field(
+        wp_unslash(
+            $_GET['checksum_expected']
+        )
+    )
+    : '';
+
+$checksumActual = isset($_GET['checksum_actual'])
+    ? sanitize_text_field(
+        wp_unslash(
+            $_GET['checksum_actual']
+        )
+    )
+    : '';
+
+$checksumValid = isset($_GET['checksum_valid'])
+    && $_GET['checksum_valid'] === '1';
+
 ?>
 
 <div class="wrap">
@@ -198,6 +258,156 @@ $error = isset($_GET['errors'])
 
     </form>
 
+    <hr>
+
+<h2>Verify Snapshot Integrity</h2>
+
+<p>
+    Verify that an existing immutable snapshot can be restored and
+    independently validated against its stored metadata.
+</p>
+
+<p>
+    This verification is read-only. It does not call Amrod, modify
+    the database, or modify WooCommerce.
+</p>
+
+
+<?php if ($integrityStatus === 'success') : ?>
+
+    <div class="notice notice-success">
+
+        <p>
+            <strong>
+                Snapshot integrity verified successfully.
+            </strong>
+        </p>
+
+        <p>
+            <strong>Snapshot UUID:</strong>
+            <?php echo esc_html($snapshotUuid); ?>
+        </p>
+
+        <p>
+            <strong>Snapshot found:</strong>
+            <?php echo $snapshotFound ? 'Yes' : 'No'; ?>
+        </p>
+
+        <p>
+            <strong>Payload found:</strong>
+            <?php echo $payloadFound ? 'Yes' : 'No'; ?>
+        </p>
+
+        <p>
+            <strong>Expected records:</strong>
+            <?php echo esc_html($recordsExpected); ?>
+        </p>
+
+        <p>
+            <strong>Actual records:</strong>
+            <?php echo esc_html($recordsActual); ?>
+        </p>
+
+        <p>
+            <strong>Record count valid:</strong>
+            <?php echo $recordsValid ? 'Yes' : 'No'; ?>
+        </p>
+
+        <p>
+            <strong>Expected checksum:</strong><br>
+            <code><?php echo esc_html($checksumExpected); ?></code>
+        </p>
+
+        <p>
+            <strong>Actual checksum:</strong><br>
+            <code><?php echo esc_html($checksumActual); ?></code>
+        </p>
+
+        <p>
+            <strong>Checksum valid:</strong>
+            <?php echo $checksumValid ? 'Yes' : 'No'; ?>
+        </p>
+
+    </div>
+
+<?php elseif (
+    $integrityStatus === 'failed'
+    || $integrityStatus === 'invalid'
+    || $integrityStatus === 'exception'
+) : ?>
+
+    <div class="notice notice-error">
+
+        <p>
+            <strong>
+                Snapshot integrity verification failed.
+            </strong>
+        </p>
+
+        <?php if ($integrityErrors !== '') : ?>
+
+            <p>
+                <?php
+                echo esc_html(
+                    $integrityErrors
+                );
+                ?>
+            </p>
+
+        <?php endif; ?>
+
+    </div>
+
+<?php endif; ?>
+
+
+<form
+    method="post"
+    action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+>
+
+    <input
+        type="hidden"
+        name="action"
+        value="bp_verify_snapshot_integrity"
+    >
+
+    <p>
+
+        <label for="bp-snapshot-uuid">
+
+            <strong>Snapshot UUID</strong>
+
+        </label>
+
+        <br>
+
+        <input
+            type="text"
+            id="bp-snapshot-uuid"
+            name="snapshot_uuid"
+            class="regular-text"
+            value="<?php echo esc_attr($snapshotUuid); ?>"
+            required
+        >
+
+    </p>
+
+
+    <?php
+
+    wp_nonce_field(
+        'bp_verify_snapshot_integrity'
+    );
+
+    submit_button(
+        'Verify Snapshot Integrity',
+        'secondary'
+    );
+
+    ?>
+
+</form>
 
     <hr>
 

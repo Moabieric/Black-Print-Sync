@@ -38,6 +38,13 @@ final class Admin
                 'run_amrod_product_ingestion_test',
             ]
         );
+        add_action(
+            'admin_post_bp_verify_snapshot_integrity',
+            [
+                $this,
+                'verify_snapshot_integrity',
+            ]
+        );
     }
 
 
@@ -598,6 +605,172 @@ final class Admin
 
         exit;
     }
+
+    /**
+ * Verify the integrity of an immutable snapshot.
+ *
+ * This action is strictly read-only.
+ *
+ * It:
+ *
+ * - Loads immutable snapshot metadata.
+ * - Restores the immutable raw payload.
+ * - Verifies the record count.
+ * - Recalculates the SHA-256 checksum.
+ * - Does not call the supplier API.
+ * - Does not modify the database.
+ * - Does not modify WooCommerce.
+ */
+public function verify_snapshot_integrity(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to verify snapshot integrity.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_verify_snapshot_integrity'
+    );
+
+    $snapshotUuid = isset(
+        $_POST['snapshot_uuid']
+    )
+        ? sanitize_text_field(
+            wp_unslash(
+                $_POST['snapshot_uuid']
+            )
+        )
+        : '';
+
+    if ($snapshotUuid === '') {
+
+        $redirect = add_query_arg(
+            [
+                'page' =>
+                    'blackprint-sync-ingestion-test',
+
+                'bp_integrity' =>
+                    'invalid',
+
+                'errors' =>
+                    'A Snapshot UUID is required.',
+            ],
+            admin_url(
+                'admin.php'
+            )
+        );
+
+        wp_safe_redirect(
+            $redirect
+        );
+
+        exit;
+    }
+
+    try {
+
+        $result = bp_commerce()
+            ->syncManager()
+            ->verifySnapshot(
+                $snapshotUuid
+            );
+
+        $queryArgs = [
+
+            'page' =>
+                'blackprint-sync-ingestion-test',
+
+            'bp_integrity' =>
+                $result['success']
+                    ? 'success'
+                    : 'failed',
+
+            'snapshot_uuid' =>
+                $snapshotUuid,
+
+            'snapshot_found' =>
+                $result['snapshot_found']
+                    ? '1'
+                    : '0',
+
+            'payload_found' =>
+                $result['payload_found']
+                    ? '1'
+                    : '0',
+
+            'records_expected' =>
+                $result['records_expected'] ?? '',
+
+            'records_actual' =>
+                $result['records_actual'] ?? '',
+
+            'records_valid' =>
+                $result['records_valid']
+                    ? '1'
+                    : '0',
+
+            'checksum_expected' =>
+                $result['checksum_expected'] ?? '',
+
+            'checksum_actual' =>
+                $result['checksum_actual'] ?? '',
+
+            'checksum_valid' =>
+                $result['checksum_valid']
+                    ? '1'
+                    : '0',
+
+        ];
+
+        if (! empty($result['errors'])) {
+
+            $queryArgs['integrity_errors'] = implode(
+                ' | ',
+                $result['errors']
+            );
+        }
+
+        $redirect = add_query_arg(
+            $queryArgs,
+            admin_url(
+                'admin.php'
+            )
+        );
+
+    } catch (\Throwable $exception) {
+
+        $redirect = add_query_arg(
+            [
+                'page' =>
+                    'blackprint-sync-ingestion-test',
+
+                'bp_integrity' =>
+                    'exception',
+
+                'snapshot_uuid' =>
+                    $snapshotUuid,
+
+                'integrity_errors' =>
+                    $exception->getMessage(),
+
+            ],
+            admin_url(
+                'admin.php'
+            )
+        );
+    }
+
+    wp_safe_redirect(
+        $redirect
+    );
+
+    exit;
+}
 
 
     /**

@@ -6,6 +6,7 @@ namespace BlackPrint\Commerce\Sync\Kernel;
 
 use BlackPrint\Commerce\Sync\Entities\SyncJob;
 use BlackPrint\Commerce\Sync\Repositories\SyncJobRepository;
+use BlackPrint\Commerce\Sync\Replay\SnapshotIntegrityVerifier;
 
 defined('ABSPATH') || exit;
 
@@ -13,7 +14,8 @@ final class SyncManager
 {
     public function __construct(
         private readonly JobRunner $runner,
-        private readonly SyncJobRepository $jobs
+        private readonly SyncJobRepository $jobs,
+        private readonly SnapshotIntegrityVerifier $integrityVerifier
     ) {
     }
 
@@ -86,8 +88,23 @@ final class SyncManager
         |--------------------------------------------------------------------------
         */
 
-        return $this->runner->run(
-            $context
+            return $this->runner->run(
+                $context
+        );
+    }
+
+    /**
+     * Verify the integrity of an immutable snapshot.
+     *
+     * This is read-only and does not modify the snapshot,
+     * payload, supplier data, or WooCommerce.
+     */
+    public function verifySnapshot(
+        string $snapshotUuid
+    ): array {
+
+        return $this->integrityVerifier->verify(
+            $snapshotUuid
         );
     }
 }

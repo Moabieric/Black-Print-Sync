@@ -144,6 +144,20 @@ require_once BP_COMMERCE_PATH
 
 /*
 |--------------------------------------------------------------------------
+| Replay / Integrity
+|--------------------------------------------------------------------------
+|
+| Read-only services for restoring and verifying immutable
+| synchronization snapshots.
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'sync/replay/class-snapshot-integrity-verifier.php';
+
+
+/*
+|--------------------------------------------------------------------------
 | Stages
 |--------------------------------------------------------------------------
 */
