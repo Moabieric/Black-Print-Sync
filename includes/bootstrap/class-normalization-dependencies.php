@@ -51,12 +51,3 @@ require_once BP_COMMERCE_PATH
 
 require_once BP_COMMERCE_PATH
     . 'normalization/services/class-normalization-service-provider.php';
-
-/*
-|--------------------------------------------------------------------------
-| Temporary Normalization Test
-|--------------------------------------------------------------------------
-*/
-
-require_once BP_COMMERCE_PATH
-    . 'tests/inspect-snapshot.php';
