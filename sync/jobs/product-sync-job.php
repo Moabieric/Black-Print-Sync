@@ -23,7 +23,8 @@ final class ProductSyncJob implements SyncJobInterface
         private readonly ConnectorRegistry $connectors,
         private readonly SnapshotRepository $snapshots,
         private readonly SnapshotPayloadRepository $payloads,
-        private readonly \wpdb $db
+        /** @var \wpdb */
+        private readonly $db
     ) {
     }
 

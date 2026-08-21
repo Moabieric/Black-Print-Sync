@@ -12,6 +12,8 @@ use BlackPrint\Commerce\Database\Migrations\CreateSnapshotsTable;
 use BlackPrint\Commerce\Database\Migrations\CreateSyncJobsTable;
 use BlackPrint\Commerce\Database\Migrations\CreateSyncLogsTable;
 use BlackPrint\Commerce\Database\SchemaManager;
+use BlackPrint\Commerce\Normalization\Services\NormalizationServiceProvider;
+use BlackPrint\Commerce\Normalization\Services\SnapshotNormalizationService;
 use BlackPrint\Commerce\Sync\Kernel\SyncManager;
 use BlackPrint\Commerce\Sync\Services\SyncServiceProvider;
 
@@ -37,6 +39,11 @@ final class Loader
      * Sync runtime manager.
      */
     private SyncManager $syncManager;
+
+    /**
+     * Normalization runtime service.
+     */
+    private SnapshotNormalizationService $normalizationService;
 
 
     /**
@@ -75,6 +82,8 @@ final class Loader
     $this->loadDatabaseDependencies();
 
     $this->loadSyncDependencies();
+
+    $this->loadNormalizationDependencies();
 
     $this->loadAdminDependencies();
 }
@@ -121,6 +130,15 @@ final class Loader
 
 
     /**
+     * Load normalization dependencies.
+     */
+    private function loadNormalizationDependencies(): void
+    {
+        require_once BP_COMMERCE_PATH
+            . 'includes/bootstrap/class-normalization-dependencies.php';
+    }
+
+    /**
      * Load admin dependencies.
      */
     private function loadAdminDependencies(): void
@@ -138,6 +156,8 @@ final class Loader
         $this->bootDatabase();
 
         $this->bootSync();
+
+        $this->bootNormalization();
 
         $this->bootAdmin();
     }
@@ -184,6 +204,15 @@ final class Loader
         $this->syncManager = $provider->register();
     }
 
+    /**
+     * Boot the normalization runtime.
+     */
+    private function bootNormalization(): void
+    {
+        $provider = new NormalizationServiceProvider();
+
+        $this->normalizationService = $provider->register();
+    }
 
     /**
      * Boot admin components.
@@ -195,10 +224,18 @@ final class Loader
 
 
     /**
-     * Get the synchronization manager.
-     */
-    public function syncManager(): SyncManager
-    {
-        return $this->syncManager;
-    }
+ * Get the synchronization manager.
+ */
+public function syncManager(): SyncManager
+{
+    return $this->syncManager;
+}
+
+/**
+ * Get the snapshot normalization service.
+ */
+public function normalization(): SnapshotNormalizationService
+{
+    return $this->normalizationService;
+}
 }
