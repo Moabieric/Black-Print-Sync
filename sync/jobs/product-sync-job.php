@@ -19,14 +19,13 @@ defined('ABSPATH') || exit;
 final class ProductSyncJob implements SyncJobInterface
 {
     public function __construct(
-        private readonly ProductsStage $stage,
-        private readonly ConnectorRegistry $connectors,
-        private readonly SnapshotRepository $snapshots,
-        private readonly SnapshotPayloadRepository $payloads,
-        /** @var \wpdb */
-        private readonly $db
-    ) {
-    }
+    private readonly ProductsStage $stage,
+    private readonly ConnectorRegistry $connectors,
+    private readonly SnapshotRepository $snapshots,
+    private readonly SnapshotPayloadRepository $payloads,
+    private readonly \wpdb $db
+) {
+}
 
     public function supplier(): string
     {
