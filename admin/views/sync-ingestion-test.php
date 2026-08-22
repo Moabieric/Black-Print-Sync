@@ -435,3 +435,29 @@ Snapshot UUID
 
 
 </div>
+
+<form
+    method="post"
+    action="<?php echo esc_url(
+        admin_url('admin-post.php')
+    ); ?>"
+>
+    <input
+        type="hidden"
+        name="action"
+        value="bp_test_snapshot_normalization"
+    >
+
+    <?php
+    wp_nonce_field(
+        'bp_test_snapshot_normalization'
+    );
+    ?>
+
+    <button
+        type="submit"
+        class="button button-secondary"
+    >
+        Run Snapshot Normalization Test
+    </button>
+</form>

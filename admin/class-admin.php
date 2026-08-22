@@ -45,6 +45,14 @@ final class Admin
                 'verify_snapshot_integrity',
             ]
         );
+
+        add_action(
+            'admin_post_bp_test_snapshot_normalization',
+            [
+                $this,
+                'test_snapshot_normalization',
+            ]
+        );
     }
 
 
@@ -770,6 +778,88 @@ public function verify_snapshot_integrity(): void
     );
 
     exit;
+}
+
+/**
+ * Run the temporary snapshot normalization smoke test.
+ *
+ * This action:
+ *
+ * - Requires administrator-level WooCommerce access.
+ * - Verifies an admin nonce.
+ * - Explicitly loads the temporary test.
+ * - Does not make the test part of plugin bootstrap.
+ */
+public function test_snapshot_normalization(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to run this normalization test.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_test_snapshot_normalization'
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Enable Explicit Test Execution
+    |--------------------------------------------------------------------------
+    */
+
+    $_GET['bp_test_normalization'] = '1';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Load Temporary Smoke Test
+    |--------------------------------------------------------------------------
+    |
+    | The test registers an admin_init callback, but admin_init has already
+    | fired by the time an admin_post action is executed.
+    |
+    | Therefore this temporary runner executes the normalization directly.
+    |
+    */
+
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    try {
+
+        $result = bp_commerce()
+            ->normalization()
+            ->normalize(
+                $snapshotUuid
+            );
+
+        wp_die(
+            '<pre>' .
+            esc_html(
+                print_r(
+                    $result->toArray(),
+                    true
+                )
+            ) .
+            '</pre>'
+        );
+
+    } catch (\Throwable $exception) {
+
+        wp_die(
+            '<pre>' .
+            esc_html(
+                'Normalization failed: ' .
+                $exception->getMessage()
+            ) .
+            '</pre>'
+        );
+    }
 }
 
 
