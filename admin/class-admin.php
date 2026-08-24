@@ -790,6 +790,14 @@ public function verify_snapshot_integrity(): void
  * - Explicitly loads the temporary test.
  * - Does not make the test part of plugin bootstrap.
  */
+/**
+ * Inspect one immutable snapshot record.
+ *
+ * Temporary diagnostic used to establish the raw supplier
+ * record structure before implementing the canonical normalizer.
+ *
+ * This action is strictly read-only.
+ */
 public function test_snapshot_normalization(): void
 {
     if (
@@ -808,41 +816,60 @@ public function test_snapshot_normalization(): void
 
     /*
     |--------------------------------------------------------------------------
-    | Enable Explicit Test Execution
+    | Existing Verified Snapshot
     |--------------------------------------------------------------------------
-    */
-
-    $_GET['bp_test_normalization'] = '1';
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Load Temporary Smoke Test
-    |--------------------------------------------------------------------------
-    |
-    | The test registers an admin_init callback, but admin_init has already
-    | fired by the time an admin_post action is executed.
-    |
-    | Therefore this temporary runner executes the normalization directly.
-    |
     */
 
     $snapshotUuid =
         'e1feb722-4844-4561-bb22-a199a57522d9';
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | Restore Immutable Raw Payload
+    |--------------------------------------------------------------------------
+    */
+
+    global $wpdb;
+
+    $payloads =
+        new \BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository(
+            $wpdb
+        );
+
     try {
 
-        $result = bp_commerce()
-            ->normalization()
-            ->normalize(
-                $snapshotUuid
+        $payload = $payloads->find(
+            $snapshotUuid
+        );
+
+        if ($payload === null) {
+
+            wp_die(
+                'Snapshot payload was not found.'
             );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Inspect First Raw Record
+        |--------------------------------------------------------------------------
+        */
+
+        $firstRecord = $payload[0] ?? null;
 
         wp_die(
             '<pre>' .
             esc_html(
                 print_r(
-                    $result->toArray(),
+                    [
+                        'record_count' =>
+                            count($payload),
+
+                        'first_record' =>
+                            $firstRecord,
+                    ],
                     true
                 )
             ) .
@@ -854,7 +881,7 @@ public function test_snapshot_normalization(): void
         wp_die(
             '<pre>' .
             esc_html(
-                'Normalization failed: ' .
+                'Snapshot inspection failed: ' .
                 $exception->getMessage()
             ) .
             '</pre>'
