@@ -71,6 +71,10 @@ final class NormalizationServiceProvider
         $normalizers =
             new CanonicalNormalizerRegistry();
 
+        $normalizers->register(
+            new \BlackPrint\Commerce\Normalization\Suppliers\Amrod\AmrodProductsNormalizer()
+    );
+
 
         /*
         |--------------------------------------------------------------------------

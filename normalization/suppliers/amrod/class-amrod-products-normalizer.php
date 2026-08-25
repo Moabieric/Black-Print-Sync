@@ -18,18 +18,15 @@ defined('ABSPATH') || exit;
  * This normalizer:
  *
  * - Does not call the Amrod API.
- * - Does not modify immutable snapshots.
+ * - Does not modify snapshots.
+ * - Does not read or write WooCommerce.
  * - Does not apply BlackPrint business rules.
  * - Does not persist canonical products.
- * - Does not write to WooCommerce.
- *
- * Its sole responsibility is supplier-to-canonical
- * structural transformation.
  */
 final class AmrodProductsNormalizer implements CanonicalNormalizer
 {
     /**
-     * Supplier identifier.
+     * Supplier supported by this normalizer.
      */
     public function supplier(): string
     {
@@ -37,7 +34,7 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
     }
 
     /**
-     * Supported supplier resource.
+     * Resource supported by this normalizer.
      */
     public function resource(): string
     {
@@ -51,43 +48,21 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
         array $record
     ): CanonicalProduct {
 
-        /*
-        |--------------------------------------------------------------------------
-        | Source Identifiers
-        |--------------------------------------------------------------------------
-        */
-
-        $simpleCode = (string) (
-            $record['simpleCode'] ?? ''
-        );
-
-        $fullCode = (string) (
-            $record['fullCode'] ?? ''
-        );
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Canonical Product
-        |--------------------------------------------------------------------------
-        */
-
         return new CanonicalProduct(
 
             /*
             |--------------------------------------------------------------------------
             | Identity
             |--------------------------------------------------------------------------
-            |
-            | The supplier code is used as a stable external key at
-            | the normalization boundary. It is not a BlackPrint
-            | internal primary identifier.
-            |
             */
 
             identity: [
 
-                'external_key' => $simpleCode,
+                'supplier_product_id' =>
+                    $record['simpleCode'] ?? null,
+
+                'supplier_product_code' =>
+                    $record['fullCode'] ?? null,
 
             ],
 
@@ -96,21 +71,18 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             |--------------------------------------------------------------------------
             | Hierarchy
             |--------------------------------------------------------------------------
-            |
-            | Preserve the supplier's base-product structure.
-            | Sellable variants remain attached to their parent
-            | canonical product.
-            |
             */
 
             hierarchy: [
 
-                'type' => 'product',
+                'type' =>
+                    $record['type'] ?? null,
 
-                'has_variants' =>
-                    ! empty(
-                        $record['variants']
-                    ),
+                'variants' =>
+                    $record['variants'] ?? [],
+
+                'decoupled' =>
+                    $record['decoupled'] ?? null,
 
             ],
 
@@ -124,16 +96,16 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             content: [
 
                 'name' =>
-                    $record['productName'] ?? '',
+                    $record['productName'] ?? null,
 
                 'description' =>
-                    $record['description'] ?? '',
+                    $record['description'] ?? null,
 
                 'keywords' =>
-                    $record['keywords'] ?? '',
+                    $record['keywords'] ?? null,
 
                 'tags' =>
-                    $record['tags'] ?? '',
+                    $record['tags'] ?? null,
 
             ],
 
@@ -147,59 +119,48 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             classification: [
 
                 'categories' =>
-                    is_array(
-                        $record['categories'] ?? null
-                    )
-                        ? $record['categories']
-                        : [],
+                    $record['categories'] ?? [],
 
                 'brand' =>
                     $record['brand'] ?? null,
 
-                'gender' =>
-                    $record['gender'] ?? null,
+                'attributes' => [
 
-                'material' =>
-                    $record['material'] ?? null,
+                    'categorised' =>
+                        $record['categorisedAttribute'] ?? null,
 
-                'fit' =>
-                    $record['fit'] ?? null,
+                    'gender' =>
+                        $record['gender'] ?? null,
 
-                'feature' =>
-                    $record['feature'] ?? null,
+                    'material' =>
+                        $record['material'] ?? null,
 
-                'attributes' =>
-                    is_array(
-                        $record['categorisedAttribute'] ?? null
-                    )
-                        ? $record['categorisedAttribute']
-                        : [],
+                    'fit' =>
+                        $record['fit'] ?? null,
+
+                    'feature' =>
+                        $record['feature'] ?? null,
+
+                ],
 
             ],
 
 
             /*
             |--------------------------------------------------------------------------
-            | Variants
+            | Variant
             |--------------------------------------------------------------------------
             |
-            | Preserve the complete supplier variant structure for
-            | this first structural normalization pass.
-            |
-            | A later refinement can introduce dedicated canonical
-            | variant DTOs without changing the supplier ingestion
-            | boundary.
+            | Variant data remains supplier-neutral at this stage.
+            | The raw variant records are preserved for the canonical
+            | model to interpret without introducing WooCommerce concepts.
             |
             */
 
             variant: [
 
-                'variants' =>
-                    is_array(
-                        $record['variants'] ?? null
-                    )
-                        ? $record['variants']
-                        : [],
+                'items' =>
+                    $record['variants'] ?? [],
 
             ],
 
@@ -208,27 +169,25 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             |--------------------------------------------------------------------------
             | Commercial
             |--------------------------------------------------------------------------
+            |
+            | Supplier ordering constraints only.
+            | No BlackPrint pricing or margin rules belong here.
+            |
             */
 
             commercial: [
 
-                'minimum_quantity' =>
+                'minimum' =>
                     $record['minimum'] ?? null,
 
-                'maximum_quantity' =>
+                'maximum' =>
                     $record['maximum'] ?? null,
 
-                'quantity_increment' =>
+                'increment' =>
                     $record['incrementedBy'] ?? null,
 
                 'promotion' =>
                     $record['promotion'] ?? null,
-
-                'made_to_order' =>
-                    $record['madeToOrder'] ?? null,
-
-                'made_to_order_message' =>
-                    $record['madeToOrderMessage'] ?? null,
 
             ],
 
@@ -247,6 +206,12 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
                 'behaviour' =>
                     $record['behaviour'] ?? null,
 
+                'made_to_order' =>
+                    $record['madeToOrder'] ?? null,
+
+                'made_to_order_message' =>
+                    $record['madeToOrderMessage'] ?? null,
+
             ],
 
 
@@ -259,21 +224,13 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             media: [
 
                 'images' =>
-                    is_array(
-                        $record['images'] ?? null
-                    )
-                        ? $record['images']
-                        : [],
-
-                'videos' =>
-                    is_array(
-                        $record['videos'] ?? null
-                    )
-                        ? $record['videos']
-                        : [],
+                    $record['images'] ?? [],
 
                 'colour_images' =>
-                    $record['colourImages'] ?? null,
+                    $record['colourImages'] ?? [],
+
+                'videos' =>
+                    $record['videos'] ?? [],
 
             ],
 
@@ -287,36 +244,19 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             relationships: [
 
                 'companion_codes' =>
-                    $record['companionCodes'] ?? null,
+                    $record['companionCodes'] ?? [],
 
                 'related_codes' =>
-                    is_array(
-                        $record['relatedCodes'] ?? null
-                    )
-                        ? $record['relatedCodes']
-                        : [],
+                    $record['relatedCodes'] ?? [],
 
                 'matching_codes' =>
-                    is_array(
-                        $record['matchingCodes'] ?? null
-                    )
-                        ? $record['matchingCodes']
-                        : [],
+                    $record['matchingCodes'] ?? [],
 
                 'grouping_codes' =>
-                    is_array(
-                        $record['groupingCodes'] ?? null
-                    )
-                        ? $record['groupingCodes']
-                        : [],
+                    $record['groupingCodes'] ?? [],
 
                 'giftset_grouping_code' =>
                     $record['groupingCodeGiftsets'] ?? null,
-
-                'components' =>
-                    $this->extractComponents(
-                        $record
-                    ),
 
             ],
 
@@ -330,16 +270,12 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             branding: [
 
                 'templates' =>
-                    is_array(
-                        $record['brandingTemplates'] ?? null
-                    )
-                        ? $record['brandingTemplates']
-                        : [],
+                    $record['brandingTemplates'] ?? [],
 
-                'full_guide' =>
+                'full_branding_guide' =>
                     $record['fullBrandingGuide'] ?? null,
 
-                'logo24_guide' =>
+                'logo24_branding_guide' =>
                     $record['logo24BrandingGuide'] ?? null,
 
                 'is_logo24' =>
@@ -356,78 +292,31 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
             | Provenance
             |--------------------------------------------------------------------------
             |
-            | Retains source context required for traceability,
-            | reconciliation and future supplier synchronization.
+            | Records where this canonical product originated.
+            | This is not business data and must not be interpreted
+            | as a sales-channel concern.
             |
             */
 
             provenance: [
 
-                'supplier' => 'amrod',
+                'supplier' =>
+                    $this->supplier(),
 
-                'resource' => 'products',
+                'resource' =>
+                    $this->resource(),
 
-                'source_product_code' =>
-                    $simpleCode,
+                'simple_code' =>
+                    $record['simpleCode'] ?? null,
 
-                'source_full_code' =>
-                    $fullCode,
+                'full_code' =>
+                    $record['fullCode'] ?? null,
 
-                'source_type' =>
-                    $record['type'] ?? null,
-
-                'introduced_at' =>
+                'introduced' =>
                     $record['introduced'] ?? null,
 
             ]
 
         );
-    }
-
-
-    /**
-     * Extract components from supplier variants.
-     *
-     * Components belong to individual variants in the
-     * Amrod source structure. This helper preserves them
-     * without flattening or modifying their meaning.
-     */
-    private function extractComponents(
-        array $record
-    ): array {
-
-        $components = [];
-
-        $variants =
-            $record['variants'] ?? [];
-
-        if (! is_array($variants)) {
-            return $components;
-        }
-
-        foreach ($variants as $variant) {
-
-            if (! is_array($variant)) {
-                continue;
-            }
-
-            if (
-                ! empty(
-                    $variant['components']
-                )
-            ) {
-                $components[] = [
-
-                    'variant_code' =>
-                        $variant['fullCode'] ?? null,
-
-                    'components' =>
-                        $variant['components'],
-
-                ];
-            }
-        }
-
-        return $components;
     }
 }
