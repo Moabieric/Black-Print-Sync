@@ -1353,7 +1353,7 @@ public function test_snapshot_normalization(): void
 
         /*
         |--------------------------------------------------------------------------
-        | First Canonical Product
+        | First Canonical Product Sample
         |--------------------------------------------------------------------------
         */
 
@@ -1374,9 +1374,7 @@ public function test_snapshot_normalization(): void
             $firstProduct =
                 $products->get(0);
 
-            if (
-                $firstProduct !== null
-            ) {
+            if ($firstProduct !== null) {
 
                 $output[] =
                     print_r(
@@ -1409,8 +1407,18 @@ public function test_snapshot_normalization(): void
             '</pre>'
         );
 
-    } 
+    } catch (\Throwable $exception) {
 
+        wp_die(
+            '<pre>' .
+            esc_html(
+                'An error occurred during normalization verification: ' .
+                $exception->getMessage()
+            ) .
+            '</pre>'
+        );
+    }
+}
 
     /**
      * Render the Amrod Stock Explorer page.
