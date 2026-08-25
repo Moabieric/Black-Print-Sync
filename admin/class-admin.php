@@ -780,19 +780,17 @@ public function verify_snapshot_integrity(): void
     exit;
 }
 
-/**
+//**
  * Run the snapshot normalization verification test.
  *
  * This action:
  *
- * - Requires manage_woocommerce capability.
+ * - Requires WooCommerce management access.
  * - Verifies the admin nonce.
- * - Loads an existing immutable snapshot.
- * - Restores its immutable payload.
- * - Resolves the supplier canonical normalizer.
- * - Normalizes all supplier records.
- * - Inspects the resulting canonical product collection.
+ * - Normalizes an existing immutable snapshot.
+ * - Reports canonical product coverage.
  * - Does not persist canonical products.
+ * - Does not modify the snapshot.
  * - Does not modify WooCommerce.
  */
 public function test_snapshot_normalization(): void
@@ -810,7 +808,6 @@ public function test_snapshot_normalization(): void
     check_admin_referer(
         'bp_test_snapshot_normalization'
     );
-
 
     /*
     |--------------------------------------------------------------------------
@@ -839,7 +836,7 @@ public function test_snapshot_normalization(): void
 
         /*
         |--------------------------------------------------------------------------
-        | Extract Result
+        | Basic Result Information
         |--------------------------------------------------------------------------
         */
 
@@ -871,92 +868,25 @@ public function test_snapshot_normalization(): void
         |--------------------------------------------------------------------------
         */
 
+        $productsWithCategories = 0;
+        $productsWithImages = 0;
+        $productsWithColourImages = 0;
+        $productsWithVariants = 0;
+        $productsWithBrandingTemplates = 0;
+        $productsWithBrandingGuide = 0;
+        $productsWithRelationships = 0;
         $productsWithIdentity = 0;
 
-        $productsWithCategories = 0;
-
-        $productsWithImages = 0;
-
-        $productsWithColourImages = 0;
-
-        $productsWithVariants = 0;
-
-        $productsWithBrandingTemplates = 0;
-
-        $productsWithBrandingGuide = 0;
-
-        $productsWithRelationships = 0;
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Identity Tracking
-        |--------------------------------------------------------------------------
-        */
-
+        $duplicateSupplierProductIds = [];
         $seenSupplierProductIds = [];
 
-        $duplicateSupplierProductIds = [];
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Inspect Canonical Products
-        |--------------------------------------------------------------------------
-        */
 
         if ($products !== null) {
 
-            foreach (
-                $products->all()
-                as $product
-            ) {
+            foreach ($products->all() as $product) {
 
                 $data =
                     $product->toArray();
-
-
-                /*
-                |--------------------------------------------------------------------------
-                | Identity
-                |--------------------------------------------------------------------------
-                */
-
-                $identity =
-                    $data['identity']
-                    ?? [];
-
-                $supplierProductId =
-                    $identity['supplier_product_id']
-                    ?? null;
-
-                if (
-                    is_string(
-                        $supplierProductId
-                    )
-                    && $supplierProductId !== ''
-                ) {
-
-                    $productsWithIdentity++;
-
-                    if (
-                        isset(
-                            $seenSupplierProductIds[
-                                $supplierProductId
-                            ]
-                        )
-                    ) {
-
-                        $duplicateSupplierProductIds[] =
-                            $supplierProductId;
-
-                    } else {
-
-                        $seenSupplierProductIds[
-                            $supplierProductId
-                        ] = true;
-                    }
-                }
 
 
                 /*
@@ -977,7 +907,6 @@ public function test_snapshot_normalization(): void
                     is_array($categories)
                     && ! empty($categories)
                 ) {
-
                     $productsWithCategories++;
                 }
 
@@ -1004,7 +933,6 @@ public function test_snapshot_normalization(): void
                     is_array($images)
                     && ! empty($images)
                 ) {
-
                     $productsWithImages++;
                 }
 
@@ -1012,7 +940,6 @@ public function test_snapshot_normalization(): void
                     is_array($colourImages)
                     && ! empty($colourImages)
                 ) {
-
                     $productsWithColourImages++;
                 }
 
@@ -1035,7 +962,6 @@ public function test_snapshot_normalization(): void
                     is_array($variants)
                     && ! empty($variants)
                 ) {
-
                     $productsWithVariants++;
                 }
 
@@ -1062,7 +988,6 @@ public function test_snapshot_normalization(): void
                     is_array($templates)
                     && ! empty($templates)
                 ) {
-
                     $productsWithBrandingTemplates++;
                 }
 
@@ -1070,7 +995,6 @@ public function test_snapshot_normalization(): void
                     is_string($brandingGuide)
                     && $brandingGuide !== ''
                 ) {
-
                     $productsWithBrandingGuide++;
                 }
 
@@ -1085,6 +1009,8 @@ public function test_snapshot_normalization(): void
                     $data['relationships']
                     ?? [];
 
+                $relationshipFound = false;
+
                 foreach (
                     [
                         'companion_codes',
@@ -1095,19 +1021,60 @@ public function test_snapshot_normalization(): void
                 ) {
 
                     $values =
-                        $relationships[
-                            $relationshipType
-                        ]
+                        $relationships[$relationshipType]
                         ?? [];
 
                     if (
                         is_array($values)
                         && ! empty($values)
                     ) {
-
-                        $productsWithRelationships++;
-
+                        $relationshipFound = true;
                         break;
+                    }
+                }
+
+                if ($relationshipFound) {
+                    $productsWithRelationships++;
+                }
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | Identity
+                |--------------------------------------------------------------------------
+                */
+
+                $identity =
+                    $data['identity']
+                    ?? [];
+
+                $supplierProductId =
+                    $identity['supplier_product_id']
+                    ?? null;
+
+                if (
+                    is_string($supplierProductId)
+                    && $supplierProductId !== ''
+                ) {
+
+                    $productsWithIdentity++;
+
+                    if (
+                        isset(
+                            $seenSupplierProductIds[
+                                $supplierProductId
+                            ]
+                        )
+                    ) {
+
+                        $duplicateSupplierProductIds[] =
+                            $supplierProductId;
+
+                    } else {
+
+                        $seenSupplierProductIds[
+                            $supplierProductId
+                        ] = true;
                     }
                 }
             }
@@ -1116,7 +1083,7 @@ public function test_snapshot_normalization(): void
 
         /*
         |--------------------------------------------------------------------------
-        | Determine Verification Status
+        | Verification Status
         |--------------------------------------------------------------------------
         */
 
@@ -1134,116 +1101,79 @@ public function test_snapshot_normalization(): void
 
         $output = [];
 
-
         $output[] =
             'BlackPrint OS — Snapshot Normalization Verification';
 
         $output[] =
             str_repeat(
                 '=',
-                64
+                58
             );
 
         $output[] = '';
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Snapshot
-        |--------------------------------------------------------------------------
-        */
-
-        $output[] =
-            'SNAPSHOT';
+        $output[] = 'SNAPSHOT';
 
         $output[] =
             str_repeat(
                 '-',
-                64
+                58
             );
 
         $output[] =
             'UUID: ' .
-            (
-                $metadata['snapshot_uuid']
-                ?? $snapshotUuid
-            );
+            ($metadata['snapshot_uuid'] ?? $snapshotUuid);
 
         $output[] =
             'Supplier: ' .
-            (
-                $metadata['supplier']
-                ?? 'unknown'
-            );
+            ($metadata['supplier'] ?? 'unknown');
 
         $output[] =
             'Resource: ' .
-            (
-                $metadata['resource']
-                ?? 'unknown'
-            );
+            ($metadata['resource'] ?? 'unknown');
 
         $output[] =
             'Snapshot records: ' .
-            (
-                $metadata['snapshot_records_count']
-                ?? 'unknown'
-            );
+            ($metadata['snapshot_records_count'] ?? 'unknown');
 
         $output[] = '';
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Normalization
-        |--------------------------------------------------------------------------
-        */
-
-        $output[] =
-            'NORMALIZATION';
+        $output[] = 'NORMALIZATION';
 
         $output[] =
             str_repeat(
                 '-',
-                64
+                58
             );
 
         $output[] =
-            'Source records:        ' .
+            'Source records:       ' .
             $sourceRecords;
 
         $output[] =
-            'Normalized:            ' .
+            'Normalized:           ' .
             $normalized;
 
         $output[] =
-            'Skipped:               ' .
+            'Skipped:              ' .
             $skipped;
 
         $output[] =
-            'Failed:                ' .
+            'Failed:               ' .
             $failed;
 
         $output[] =
-            'Status:                ' .
+            'Status:               ' .
             $status;
 
         $output[] = '';
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Canonical Product Coverage
-        |--------------------------------------------------------------------------
-        */
-
-        $output[] =
-            'CANONICAL PRODUCT COVERAGE';
+        $output[] = 'CANONICAL PRODUCT COVERAGE';
 
         $output[] =
             str_repeat(
                 '-',
-                64
+                58
             );
 
         $output[] =
@@ -1280,30 +1210,20 @@ public function test_snapshot_normalization(): void
 
         $output[] = '';
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Identity Check
-        |--------------------------------------------------------------------------
-        */
-
-        $output[] =
-            'IDENTITY CHECK';
+        $output[] = 'IDENTITY CHECK';
 
         $output[] =
             str_repeat(
                 '-',
-                64
+                58
             );
 
         $output[] =
-            'Unique supplier product IDs:      ' .
-            count(
-                $seenSupplierProductIds
-            );
+            'Unique supplier product IDs:    ' .
+            count($seenSupplierProductIds);
 
         $output[] =
-            'Duplicate supplier product IDs:   ' .
+            'Duplicate supplier product IDs: ' .
             count(
                 array_unique(
                     $duplicateSupplierProductIds
@@ -1312,35 +1232,21 @@ public function test_snapshot_normalization(): void
 
         $output[] = '';
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Errors
-        |--------------------------------------------------------------------------
-        */
-
-        $output[] =
-            'ERRORS';
+        $output[] = 'ERRORS';
 
         $output[] =
             str_repeat(
                 '-',
-                64
+                58
             );
 
-        if (
-            empty($errors)
-        ) {
+        if (empty($errors)) {
 
-            $output[] =
-                'None';
+            $output[] = 'None';
 
         } else {
 
-            foreach (
-                $errors
-                as $error
-            ) {
+            foreach ($errors as $error) {
 
                 $output[] =
                     '- ' .
@@ -1350,21 +1256,20 @@ public function test_snapshot_normalization(): void
 
         $output[] = '';
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | First Canonical Product
-        |--------------------------------------------------------------------------
-        */
-
-        $output[] =
-            'FIRST CANONICAL PRODUCT SAMPLE';
+        $output[] = 'FIRST CANONICAL PRODUCT SAMPLE';
 
         $output[] =
             str_repeat(
                 '-',
-                64
+                58
             );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | First Product
+        |--------------------------------------------------------------------------
+        */
 
         if (
             $products !== null
@@ -1374,9 +1279,7 @@ public function test_snapshot_normalization(): void
             $firstProduct =
                 $products->get(0);
 
-            if (
-                $firstProduct !== null
-            ) {
+            if ($firstProduct !== null) {
 
                 $output[] =
                     print_r(
@@ -1412,12 +1315,15 @@ public function test_snapshot_normalization(): void
     } catch (\Throwable $exception) {
 
         wp_die(
-            'An error occurred during normalization verification: ' .
+            '<pre>' .
             esc_html(
+                'Normalization verification failed: ' .
                 $exception->getMessage()
-            )
+            ) .
+            '</pre>'
         );
     }
+}
 
 
     /**
@@ -1428,6 +1334,7 @@ public function test_snapshot_normalization(): void
      * No WooCommerce products or stock values are
      * created or modified.
      */
+
     public function amrod_stock(): void
     {
         $connector = new \BlackPrint\Commerce\Suppliers\Amrod\Amrod_Connector();
