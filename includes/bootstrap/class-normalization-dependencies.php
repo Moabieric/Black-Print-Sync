@@ -40,6 +40,15 @@ require_once BP_COMMERCE_PATH
     . 'normalization/registry/class-canonical-normalizer-registry.php';
 
 
+
+    /*
+|--------------------------------------------------------------------------
+| Supplier Normalizers
+|--------------------------------------------------------------------------
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'normalization/suppliers/amrod/class-amrod-products-normalizer.php';
 /*
 |--------------------------------------------------------------------------
 | Normalization Services

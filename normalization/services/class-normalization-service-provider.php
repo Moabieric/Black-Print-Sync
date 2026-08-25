@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace BlackPrint\Commerce\Normalization\Services;
 
+use BlackPrint\Commerce\Normalization\Suppliers\Amrod\AmrodProductsNormalizer;
 use BlackPrint\Commerce\Normalization\Registry\CanonicalNormalizerRegistry;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
+
+
 
 defined('ABSPATH') || exit;
 
@@ -68,6 +71,16 @@ final class NormalizationServiceProvider
         $normalizers =
             new CanonicalNormalizerRegistry();
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | Supplier Normalizers
+        |--------------------------------------------------------------------------
+        */
+
+        $normalizers->register(
+            new AmrodProductsNormalizer()
+    );
 
         /*
         |--------------------------------------------------------------------------
