@@ -57,30 +57,24 @@ final class NormalizationServiceProvider
 
 
         /*
-        |--------------------------------------------------------------------------
-        | Canonical Normalizer Registry
-        |--------------------------------------------------------------------------
-        |
-        | Supplier-specific normalizers will be registered here.
-        |
-        | At this stage the registry may intentionally be empty
-        | until the Amrod Products Normalizer is implemented.
-        |
-        */
-        $normalizers->register(
-            new \BlackPrint\Commerce\Normalization\Suppliers\Amrod\AmrodProductsNormalizer()
-        );
+|--------------------------------------------------------------------------
+| Canonical Normalizer Registry
+|--------------------------------------------------------------------------
+*/
+
+$normalizers =
+    new CanonicalNormalizerRegistry();
 
 
-        /*
-        |--------------------------------------------------------------------------
-        | Supplier Normalizers
-        |--------------------------------------------------------------------------
-        */
+/*
+|--------------------------------------------------------------------------
+| Supplier Normalizers
+|--------------------------------------------------------------------------
+*/
 
-        $normalizers->register(
-            new AmrodProductsNormalizer()
-        );
+$normalizers->register(
+    new AmrodProductsNormalizer()
+);
 
         /*
         |--------------------------------------------------------------------------
