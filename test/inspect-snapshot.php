@@ -206,8 +206,8 @@ add_action(
                         ?? [];
 
                     $variants =
-                        $canonical['variant']['items']
-                        ?? [];
+    $data['variant']['items']
+    ?? [];
 
                     if (
                         is_array($variants)
