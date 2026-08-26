@@ -922,6 +922,14 @@ public function test_snapshot_normalization(): void
 
         $decoupledProducts = 0;
 
+        $decoupledWithSingleVariant = 0;
+
+        $decoupledWithMultipleVariants = 0;
+
+$decoupledWithNoVariants = 0;
+
+$invalidDecoupledFlags = 0;
+
 
         /*
         |--------------------------------------------------------------------------
@@ -1290,6 +1298,44 @@ public function test_snapshot_normalization(): void
 
                     $missingVariantFullCodes++;
                 }
+
+                /*
+|--------------------------------------------------------------------------
+| Decoupled Product Analysis
+|--------------------------------------------------------------------------
+*/
+
+$decoupled =
+    $hierarchy['decoupled']
+    ?? null;
+
+if (
+    $decoupled !== null
+    && ! is_bool($decoupled)
+) {
+
+    $invalidDecoupledFlags++;
+
+} elseif ($decoupled === true) {
+
+    $decoupledProducts++;
+
+    if (
+        ! is_array($variants)
+        || empty($variants)
+    ) {
+
+        $decoupledWithNoVariants++;
+
+    } elseif (count($variants) === 1) {
+
+        $decoupledWithSingleVariant++;
+
+    } else {
+
+        $decoupledWithMultipleVariants++;
+    }
+}
 
 
                 /*
@@ -1838,6 +1884,43 @@ public function test_snapshot_normalization(): void
                 $output[] = '';
             }
         }
+
+        /*
+|--------------------------------------------------------------------------
+| Decoupled Product Analysis Report
+|--------------------------------------------------------------------------
+*/
+
+$output[] =
+    'DECOUPLED PRODUCT ANALYSIS';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+$output[] =
+    'Decoupled products:                 ' .
+    $decoupledProducts;
+
+$output[] =
+    'Decoupled with single variant:      ' .
+    $decoupledWithSingleVariant;
+
+$output[] =
+    'Decoupled with multiple variants:   ' .
+    $decoupledWithMultipleVariants;
+
+$output[] =
+    'Decoupled with no variants:         ' .
+    $decoupledWithNoVariants;
+
+$output[] =
+    'Invalid decoupled flags:            ' .
+    $invalidDecoupledFlags;
+
+$output[] = '';
 
 
         /*
