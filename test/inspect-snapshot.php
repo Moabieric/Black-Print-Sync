@@ -206,7 +206,7 @@ add_action(
                         ?? [];
 
                     $variants =
-                        $hierarchy['variants']
+                        $canonical['variant']['items']
                         ?? [];
 
                     if (
