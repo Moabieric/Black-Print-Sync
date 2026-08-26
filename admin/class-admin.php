@@ -1018,26 +1018,26 @@ public function test_snapshot_normalization(): void
 
 
                 /*
-                |--------------------------------------------------------------------------
-                | Variants
-                |--------------------------------------------------------------------------
-                */
+|--------------------------------------------------------------------------
+| Variants
+|--------------------------------------------------------------------------
+*/
 
-                $hierarchy =
-                    $data['hierarchy']
-                    ?? [];
+$variant =
+    $data['variant']
+    ?? [];
 
-                $variants =
-                    $hierarchy['variants']
-                    ?? [];
+$variants =
+    $variant['items']
+    ?? [];
 
-                if (
-                    is_array($variants)
-                    && ! empty($variants)
-                ) {
+if (
+    is_array($variants)
+    && ! empty($variants)
+) {
 
-                    $productsWithVariants++;
-                }
+    $productsWithVariants++;
+}
 
 
                 /*

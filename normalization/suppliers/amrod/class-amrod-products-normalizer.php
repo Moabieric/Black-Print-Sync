@@ -68,23 +68,24 @@ final class AmrodProductsNormalizer implements CanonicalNormalizer
 
 
             /*
-            |--------------------------------------------------------------------------
-            | Hierarchy
-            |--------------------------------------------------------------------------
-            */
+|--------------------------------------------------------------------------
+| Hierarchy
+|--------------------------------------------------------------------------
+|
+| Describes the structural characteristics of the canonical product.
+| Sellable variant records belong exclusively to variant.items.
+|
+*/
 
-            hierarchy: [
+hierarchy: [
 
-                'type' =>
-                    $record['type'] ?? null,
+    'type' =>
+        $record['type'] ?? null,
 
-                'variants' =>
-                    $record['variants'] ?? [],
+    'decoupled' =>
+        $record['decoupled'] ?? null,
 
-                'decoupled' =>
-                    $record['decoupled'] ?? null,
-
-            ],
+],
 
 
             /*
