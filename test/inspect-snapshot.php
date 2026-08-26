@@ -15,6 +15,7 @@ defined('ABSPATH') || exit;
 | 4. Normalizes all supplier records.
 | 5. Inspects the canonical product collection.
 | 6. Reports normalization statistics and coverage.
+| 7. Performs read-only product and variant identity analysis.
 |
 | IMPORTANT:
 |
@@ -126,6 +127,33 @@ add_action(
             $seenSupplierProductIds = [];
 
 
+            /*
+            |--------------------------------------------------------------------------
+            | Step 3 — Product & Variant Identity Analysis
+            |--------------------------------------------------------------------------
+            */
+
+            $seenVariantFullCodes = [];
+
+            $duplicateVariantFullCodes = [];
+
+            $productsWithSingleVariant = 0;
+            $productsWithMultipleVariants = 0;
+
+            $missingSupplierProductIds = 0;
+            $missingSupplierProductCodes = 0;
+
+            $missingVariantSimpleCodes = 0;
+            $missingVariantFullCodes = 0;
+
+            $supplierProductIdSimpleCodeMismatches = [];
+            $supplierProductCodeSimpleCodeMismatches = [];
+
+            $variantSimpleCodeMismatches = [];
+
+            $decoupledProducts = 0;
+
+
             if ($products !== null) {
 
                 foreach ($products->all() as $product) {
@@ -206,8 +234,8 @@ add_action(
                         ?? [];
 
                     $variants =
-    $data['variant']['items']
-    ?? [];
+                        $data['variant']['items']
+                        ?? [];
 
                     if (
                         is_array($variants)
@@ -303,6 +331,17 @@ add_action(
                         $identity['supplier_product_id']
                         ?? null;
 
+                    $supplierProductCode =
+                        $identity['supplier_product_code']
+                        ?? null;
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Existing Product Identity Verification
+                    |--------------------------------------------------------------------------
+                    */
+
                     if (
                         is_string($supplierProductId)
                         && $supplierProductId !== ''
@@ -327,6 +366,201 @@ add_action(
                                 $supplierProductId
                             ] = true;
                         }
+
+                    } else {
+
+                        $missingSupplierProductIds++;
+                    }
+
+
+                    if (
+                        ! is_string($supplierProductCode)
+                        || $supplierProductCode === ''
+                    ) {
+                        $missingSupplierProductCodes++;
+                    }
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Variant Count Analysis
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $variantCount =
+                        is_array($variants)
+                        ? count($variants)
+                        : 0;
+
+                    if ($variantCount === 1) {
+
+                        $productsWithSingleVariant++;
+
+                    } elseif ($variantCount > 1) {
+
+                        $productsWithMultipleVariants++;
+                    }
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Product Identity ↔ Variant simpleCode
+                    |--------------------------------------------------------------------------
+                    */
+
+                    if (is_array($variants)) {
+
+                        foreach ($variants as $variant) {
+
+                            $simpleCode =
+                                $variant['simpleCode']
+                                ?? null;
+
+                            $fullCode =
+                                $variant['fullCode']
+                                ?? null;
+
+
+                            /*
+                            |--------------------------------------------------------------------------
+                            | Missing Variant simpleCode
+                            |--------------------------------------------------------------------------
+                            */
+
+                            if (
+                                ! is_string($simpleCode)
+                                || $simpleCode === ''
+                            ) {
+
+                                $missingVariantSimpleCodes++;
+
+                            } else {
+
+                                /*
+                                |--------------------------------------------------------------------------
+                                | supplier_product_id ↔ simpleCode
+                                |--------------------------------------------------------------------------
+                                */
+
+                                if (
+                                    is_string($supplierProductId)
+                                    && $supplierProductId !== ''
+                                    && $simpleCode !== $supplierProductId
+                                ) {
+
+                                    $supplierProductIdSimpleCodeMismatches[] = [
+                                        'supplier_product_id' =>
+                                            $supplierProductId,
+
+                                        'simpleCode' =>
+                                            $simpleCode,
+
+                                        'fullCode' =>
+                                            $fullCode,
+                                    ];
+                                }
+
+
+                                /*
+                                |--------------------------------------------------------------------------
+                                | supplier_product_code ↔ simpleCode
+                                |--------------------------------------------------------------------------
+                                */
+
+                                if (
+                                    is_string($supplierProductCode)
+                                    && $supplierProductCode !== ''
+                                    && $simpleCode !== $supplierProductCode
+                                ) {
+
+                                    $supplierProductCodeSimpleCodeMismatches[] = [
+                                        'supplier_product_code' =>
+                                            $supplierProductCode,
+
+                                        'simpleCode' =>
+                                            $simpleCode,
+
+                                        'fullCode' =>
+                                            $fullCode,
+                                    ];
+                                }
+
+
+                                /*
+                                |--------------------------------------------------------------------------
+                                | Variant simpleCode Consistency
+                                |--------------------------------------------------------------------------
+                                */
+
+                                if (
+                                    is_string($supplierProductId)
+                                    && $supplierProductId !== ''
+                                    && $simpleCode !== $supplierProductId
+                                ) {
+
+                                    $variantSimpleCodeMismatches[] = [
+                                        'supplier_product_id' =>
+                                            $supplierProductId,
+
+                                        'simpleCode' =>
+                                            $simpleCode,
+
+                                        'fullCode' =>
+                                            $fullCode,
+                                    ];
+                                }
+                            }
+
+
+                            /*
+                            |--------------------------------------------------------------------------
+                            | Missing / Duplicate Variant fullCode
+                            |--------------------------------------------------------------------------
+                            */
+
+                            if (
+                                ! is_string($fullCode)
+                                || $fullCode === ''
+                            ) {
+
+                                $missingVariantFullCodes++;
+
+                            } else {
+
+                                if (
+                                    isset(
+                                        $seenVariantFullCodes[
+                                            $fullCode
+                                        ]
+                                    )
+                                ) {
+
+                                    $duplicateVariantFullCodes[] =
+                                        $fullCode;
+
+                                } else {
+
+                                    $seenVariantFullCodes[
+                                        $fullCode
+                                    ] = true;
+                                }
+                            }
+                        }
+                    }
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Decoupled Products
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $decoupled =
+                        $hierarchy['decoupled']
+                        ?? false;
+
+                    if ($decoupled) {
+                        $decoupledProducts++;
                     }
                 }
             }
@@ -364,6 +598,7 @@ add_action(
             $output[] = '';
 
             $output[] = 'SNAPSHOT';
+
             $output[] =
                 str_repeat(
                     '-',
@@ -389,6 +624,7 @@ add_action(
             $output[] = '';
 
             $output[] = 'NORMALIZATION';
+
             $output[] =
                 str_repeat(
                     '-',
@@ -418,6 +654,7 @@ add_action(
             $output[] = '';
 
             $output[] = 'CANONICAL PRODUCT COVERAGE';
+
             $output[] =
                 str_repeat(
                     '-',
@@ -425,40 +662,41 @@ add_action(
                 );
 
             $output[] =
-                'Products with identity:          ' .
+                'Products with identity:           ' .
                 $productsWithIdentity;
 
             $output[] =
-                'Products with categories:        ' .
+                'Products with categories:         ' .
                 $productsWithCategories;
 
             $output[] =
-                'Products with images:            ' .
+                'Products with images:             ' .
                 $productsWithImages;
 
             $output[] =
-                'Products with colour images:     ' .
+                'Products with colour images:      ' .
                 $productsWithColourImages;
 
             $output[] =
-                'Products with variants:          ' .
+                'Products with variants:           ' .
                 $productsWithVariants;
 
             $output[] =
-                'Products with branding templates:' .
+                'Products with branding templates: ' .
                 $productsWithBrandingTemplates;
 
             $output[] =
-                'Products with branding guide:    ' .
+                'Products with branding guide:     ' .
                 $productsWithBrandingGuide;
 
             $output[] =
-                'Products with relationships:     ' .
+                'Products with relationships:      ' .
                 $productsWithRelationships;
 
             $output[] = '';
 
             $output[] = 'IDENTITY CHECK';
+
             $output[] =
                 str_repeat(
                     '-',
@@ -466,11 +704,11 @@ add_action(
                 );
 
             $output[] =
-                'Unique supplier product IDs:     ' .
+                'Unique supplier product IDs:      ' .
                 count($seenSupplierProductIds);
 
             $output[] =
-                'Duplicate supplier product IDs:  ' .
+                'Duplicate supplier product IDs:   ' .
                 count(
                     array_unique(
                         $duplicateSupplierProductIds
@@ -479,7 +717,213 @@ add_action(
 
             $output[] = '';
 
+            /*
+            |--------------------------------------------------------------------------
+            | Step 3 — Identity Analysis Report
+            |--------------------------------------------------------------------------
+            */
+
+            $output[] = 'IDENTITY ANALYSIS';
+
+            $output[] =
+                str_repeat(
+                    '-',
+                    58
+                );
+
+            $output[] =
+                'Products with single variant:     ' .
+                $productsWithSingleVariant;
+
+            $output[] =
+                'Products with multiple variants:  ' .
+                $productsWithMultipleVariants;
+
+            $output[] =
+                'Unique variant fullCodes:         ' .
+                count($seenVariantFullCodes);
+
+            $output[] =
+                'Duplicate variant fullCodes:      ' .
+                count(
+                    array_unique(
+                        $duplicateVariantFullCodes
+                    )
+                );
+
+            $output[] =
+                'Missing supplier product IDs:      ' .
+                $missingSupplierProductIds;
+
+            $output[] =
+                'Missing supplier product codes:   ' .
+                $missingSupplierProductCodes;
+
+            $output[] =
+                'Missing variant simpleCodes:       ' .
+                $missingVariantSimpleCodes;
+
+            $output[] =
+                'Missing variant fullCodes:         ' .
+                $missingVariantFullCodes;
+
+            $output[] =
+                'ID ↔ simpleCode mismatches:        ' .
+                count(
+                    $supplierProductIdSimpleCodeMismatches
+                );
+
+            $output[] =
+                'Code ↔ simpleCode mismatches:      ' .
+                count(
+                    $supplierProductCodeSimpleCodeMismatches
+                );
+
+            $output[] =
+                'Variant simpleCode mismatches:     ' .
+                count(
+                    $variantSimpleCodeMismatches
+                );
+
+            $output[] =
+                'Decoupled products:                ' .
+                $decoupledProducts;
+
+            $output[] = '';
+
+            /*
+            |--------------------------------------------------------------------------
+            | Identity Analysis Exceptions
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                ! empty($duplicateVariantFullCodes)
+                || ! empty($supplierProductIdSimpleCodeMismatches)
+                || ! empty($supplierProductCodeSimpleCodeMismatches)
+                || ! empty($variantSimpleCodeMismatches)
+            ) {
+
+                $output[] =
+                    'IDENTITY ANALYSIS DETAILS';
+
+                $output[] =
+                    str_repeat(
+                        '-',
+                        58
+                    );
+
+
+                if (! empty($duplicateVariantFullCodes)) {
+
+                    $output[] =
+                        'Duplicate fullCodes:';
+
+                    foreach (
+                        array_unique(
+                            $duplicateVariantFullCodes
+                        ) as $fullCode
+                    ) {
+
+                        $output[] =
+                            '- ' .
+                            $fullCode;
+                    }
+                }
+
+
+                if (
+                    ! empty(
+                        $supplierProductIdSimpleCodeMismatches
+                    )
+                ) {
+
+                    $output[] =
+                        'supplier_product_id ↔ simpleCode mismatches:';
+
+                    foreach (
+                        $supplierProductIdSimpleCodeMismatches
+                        as $mismatch
+                    ) {
+
+                        $output[] =
+                            '- ID=' .
+                            ($mismatch['supplier_product_id'] ?? '')
+                            .
+                            ' simpleCode=' .
+                            ($mismatch['simpleCode'] ?? '')
+                            .
+                            ' fullCode=' .
+                            ($mismatch['fullCode'] ?? '');
+                    }
+                }
+
+
+                if (
+                    ! empty(
+                        $supplierProductCodeSimpleCodeMismatches
+                    )
+                ) {
+
+                    $output[] =
+                        'supplier_product_code ↔ simpleCode mismatches:';
+
+                    foreach (
+                        $supplierProductCodeSimpleCodeMismatches
+                        as $mismatch
+                    ) {
+
+                        $output[] =
+                            '- Code=' .
+                            ($mismatch['supplier_product_code'] ?? '')
+                            .
+                            ' simpleCode=' .
+                            ($mismatch['simpleCode'] ?? '')
+                            .
+                            ' fullCode=' .
+                            ($mismatch['fullCode'] ?? '');
+                    }
+                }
+
+
+                if (
+                    ! empty(
+                        $variantSimpleCodeMismatches
+                    )
+                ) {
+
+                    $output[] =
+                        'Variant simpleCode mismatches:';
+
+                    foreach (
+                        $variantSimpleCodeMismatches
+                        as $mismatch
+                    ) {
+
+                        $output[] =
+                            '- ID=' .
+                            ($mismatch['supplier_product_id'] ?? '')
+                            .
+                            ' simpleCode=' .
+                            ($mismatch['simpleCode'] ?? '')
+                            .
+                            ' fullCode=' .
+                            ($mismatch['fullCode'] ?? '');
+                    }
+                }
+
+                $output[] = '';
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Errors
+            |--------------------------------------------------------------------------
+            */
+
             $output[] = 'ERRORS';
+
             $output[] =
                 str_repeat(
                     '-',
@@ -504,6 +948,7 @@ add_action(
             $output[] = '';
 
             $output[] = 'FIRST CANONICAL PRODUCT SAMPLE';
+
             $output[] =
                 str_repeat(
                     '-',
