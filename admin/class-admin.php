@@ -2102,9 +2102,13 @@ if ($products !== null) {
             $data['identity']
             ?? [];
 
-        $variants =
-            $data['variants']
-            ?? [];
+        $variantData =
+    $data['variant']
+    ?? [];
+
+$variants =
+    $variantData['items']
+    ?? [];
 
         if (
             ! is_array($variants)
