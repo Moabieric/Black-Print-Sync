@@ -930,6 +930,20 @@ $decoupledWithNoVariants = 0;
 
 $invalidDecoupledFlags = 0;
 
+/*
+|--------------------------------------------------------------------------
+| WooCommerce Variant SKU Reconciliation
+|--------------------------------------------------------------------------
+*/
+
+$canonicalVariantFullCodes = [];
+
+$wooCommerceVariantSkus = [];
+
+$matchedVariantSkus = [];
+
+$duplicateWooCommerceVariantSkus = [];
+
 
         /*
         |--------------------------------------------------------------------------
@@ -1332,62 +1346,6 @@ if (
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| WooCommerce Variant SKU Reconciliation
-|--------------------------------------------------------------------------
-|
-| Read-only comparison between canonical Amrod variant identities
-| and the SKU identities of variations already present in the
-| living WooCommerce store.
-|
-*/
-
-$wooCommerceVariationIds = get_posts([
-    'post_type'      => 'product_variation',
-    'post_status'    => 'publish',
-    'posts_per_page' => -1,
-    'fields'         => 'ids',
-]);
-
-foreach ($wooCommerceVariationIds as $variationId) {
-
-    $sku = get_post_meta(
-        $variationId,
-        '_sku',
-        true
-    );
-
-    if (
-        ! is_string($sku)
-        || $sku === ''
-    ) {
-        continue;
-    }
-
-    if (
-        isset(
-            $wooCommerceVariantSkus[$sku]
-        )
-    ) {
-
-        $duplicateWooCommerceVariantSkus[] =
-            $sku;
-
-        continue;
-    }
-
-    $wooCommerceVariantSkus[$sku] = true;
-
-    if (
-        isset(
-            $canonicalVariantFullCodes[$sku]
-        )
-    ) {
-
-        $matchedVariantSkus[$sku] = true;
-    }
-}
 
 
                 /*
@@ -1462,6 +1420,64 @@ foreach ($wooCommerceVariationIds as $variationId) {
                 }
             }
         }
+
+        /*
+|--------------------------------------------------------------------------
+| WooCommerce Variant SKU Reconciliation
+|--------------------------------------------------------------------------
+|
+| This comparison runs once, after the complete canonical variant
+| identity set has been built.
+|
+| It is intentionally read-only and does not modify WooCommerce.
+|
+*/
+
+$wooCommerceVariationIds = get_posts([
+    'post_type'      => 'product_variation',
+    'post_status'    => 'publish',
+    'posts_per_page' => -1,
+    'fields'         => 'ids',
+]);
+
+foreach ($wooCommerceVariationIds as $variationId) {
+
+    $sku = get_post_meta(
+        $variationId,
+        '_sku',
+        true
+    );
+
+    if (
+        ! is_string($sku)
+        || $sku === ''
+    ) {
+        continue;
+    }
+
+    if (
+        isset(
+            $wooCommerceVariantSkus[$sku]
+        )
+    ) {
+
+        $duplicateWooCommerceVariantSkus[] =
+            $sku;
+
+        continue;
+    }
+
+    $wooCommerceVariantSkus[$sku] = true;
+
+    if (
+        isset(
+            $canonicalVariantFullCodes[$sku]
+        )
+    ) {
+
+        $matchedVariantSkus[$sku] = true;
+    }
+}
 
 
         /*
