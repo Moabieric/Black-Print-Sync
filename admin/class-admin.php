@@ -2373,6 +2373,265 @@ if (
 
 $output[] = '';
 
+/*
+|--------------------------------------------------------------------------
+| WooCommerce-only Product Family Analysis
+|--------------------------------------------------------------------------
+|
+| Read-only diagnostic.
+|
+| Groups the sampled WooCommerce-only variations by their parent
+| WooCommerce product and checks whether the corresponding canonical
+| product identity exists.
+|
+| This intentionally does not load the WooCommerce catalogue again.
+|
+*/
+
+$wooCommerceOnlyFamilySamples = [];
+
+foreach (
+    $wooCommerceOnlyVariantSample
+    as $sku
+) {
+
+    $variationId =
+        wc_get_product_id_by_sku(
+            $sku
+        );
+
+    if (
+        ! $variationId
+    ) {
+        continue;
+    }
+
+    $parentProductId =
+        wp_get_post_parent_id(
+            $variationId
+        );
+
+    if (
+        ! $parentProductId
+    ) {
+        continue;
+    }
+
+    if (
+        ! isset(
+            $wooCommerceOnlyFamilySamples[
+                $parentProductId
+            ]
+        )
+    ) {
+
+        $parentSku =
+            get_post_meta(
+                $parentProductId,
+                '_sku',
+                true
+            );
+
+        $parentTitle =
+            get_the_title(
+                $parentProductId
+            );
+
+        $wooCommerceOnlyFamilySamples[
+            $parentProductId
+        ] = [
+            'parent_sku' =>
+                is_string($parentSku)
+                ? $parentSku
+                : '',
+
+            'parent_title' =>
+                is_string($parentTitle)
+                ? $parentTitle
+                : '',
+
+            'variation_skus' =>
+                [],
+        ];
+    }
+
+    $wooCommerceOnlyFamilySamples[
+        $parentProductId
+    ]['variation_skus'][] =
+        $sku;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Build canonical product identity lookup
+|--------------------------------------------------------------------------
+*/
+
+$canonicalProductIdentityLookup = [];
+
+if ($products !== null) {
+
+    foreach (
+        $products->all()
+        as $product
+    ) {
+
+        $data =
+            $product->toArray();
+
+        $identity =
+            $data['identity']
+            ?? [];
+
+        $supplierProductId =
+            $identity[
+                'supplier_product_id'
+            ]
+            ?? null;
+
+        $supplierProductCode =
+            $identity[
+                'supplier_product_code'
+            ]
+            ?? null;
+
+        if (
+            is_string(
+                $supplierProductId
+            )
+            && $supplierProductId !== ''
+        ) {
+
+            $canonicalProductIdentityLookup[
+                $supplierProductId
+            ] = true;
+        }
+
+        if (
+            is_string(
+                $supplierProductCode
+            )
+            && $supplierProductCode !== ''
+        ) {
+
+            $canonicalProductIdentityLookup[
+                $supplierProductCode
+            ] = true;
+        }
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Report
+|--------------------------------------------------------------------------
+*/
+
+$output[] =
+    'WOOCOMMERCE-ONLY PRODUCT FAMILIES';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+$output[] =
+    'Sampled families: ' .
+    count(
+        $wooCommerceOnlyFamilySamples
+    );
+
+$output[] = '';
+
+if (
+    empty(
+        $wooCommerceOnlyFamilySamples
+    )
+) {
+
+    $output[] =
+        'None';
+
+} else {
+
+    foreach (
+        $wooCommerceOnlyFamilySamples
+        as $parentProductId =>
+        $family
+    ) {
+
+        $parentSku =
+            $family['parent_sku']
+            ?? '';
+
+        $parentTitle =
+            $family['parent_title']
+            ?? '';
+
+        $canonicalParentFound =
+            isset(
+                $canonicalProductIdentityLookup[
+                    $parentSku
+                ]
+            );
+
+        $output[] =
+            'Parent ID: ' .
+            $parentProductId;
+
+        $output[] =
+            '  Parent SKU: ' .
+            (
+                $parentSku !== ''
+                ? $parentSku
+                : 'NONE'
+            );
+
+        $output[] =
+            '  Parent title: ' .
+            (
+                $parentTitle !== ''
+                ? $parentTitle
+                : 'NONE'
+            );
+
+        $output[] =
+            '  Canonical parent: ' .
+            (
+                $canonicalParentFound
+                ? 'FOUND'
+                : 'NOT FOUND'
+            );
+
+        $output[] =
+            '  Sampled unmatched variations: ' .
+            count(
+                $family[
+                    'variation_skus'
+                ]
+            );
+
+        foreach (
+            $family[
+                'variation_skus'
+            ]
+            as $variationSku
+        ) {
+
+            $output[] =
+                '    - ' .
+                $variationSku;
+        }
+
+        $output[] = '';
+    }
+}
+
+$output[] = '';
+
 
         /*
         |--------------------------------------------------------------------------
