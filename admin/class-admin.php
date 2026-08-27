@@ -1255,7 +1255,11 @@ $hierarchy =
 
                             $missingVariantFullCodes++;
 
-                        } else {
+                            } else {
+
+                                $canonicalVariantFullCodes[
+                                    $fullCode
+                                ] = true;
 
                             if (
                                 isset(
@@ -1325,6 +1329,63 @@ if (
     } else {
 
         $decoupledWithMultipleVariants++;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| WooCommerce Variant SKU Reconciliation
+|--------------------------------------------------------------------------
+|
+| Read-only comparison between canonical Amrod variant identities
+| and the SKU identities of variations already present in the
+| living WooCommerce store.
+|
+*/
+
+$wooCommerceVariationIds = get_posts([
+    'post_type'      => 'product_variation',
+    'post_status'    => 'publish',
+    'posts_per_page' => -1,
+    'fields'         => 'ids',
+]);
+
+foreach ($wooCommerceVariationIds as $variationId) {
+
+    $sku = get_post_meta(
+        $variationId,
+        '_sku',
+        true
+    );
+
+    if (
+        ! is_string($sku)
+        || $sku === ''
+    ) {
+        continue;
+    }
+
+    if (
+        isset(
+            $wooCommerceVariantSkus[$sku]
+        )
+    ) {
+
+        $duplicateWooCommerceVariantSkus[] =
+            $sku;
+
+        continue;
+    }
+
+    $wooCommerceVariantSkus[$sku] = true;
+
+    if (
+        isset(
+            $canonicalVariantFullCodes[$sku]
+        )
+    ) {
+
+        $matchedVariantSkus[$sku] = true;
     }
 }
 
@@ -1910,6 +1971,60 @@ $output[] =
 $output[] =
     'Invalid decoupled flags:            ' .
     $invalidDecoupledFlags;
+
+$output[] = '';
+
+
+/*
+|--------------------------------------------------------------------------
+| WooCommerce Variant SKU Reconciliation Report
+|--------------------------------------------------------------------------
+*/
+
+$canonicalOnlyVariantSkus =
+    array_diff_key(
+        $canonicalVariantFullCodes,
+        $wooCommerceVariantSkus
+    );
+
+$wooCommerceOnlyVariantSkus =
+    array_diff_key(
+        $wooCommerceVariantSkus,
+        $canonicalVariantFullCodes
+    );
+
+$output[] =
+    'VARIANT SKU RECONCILIATION';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+$output[] =
+    'Canonical variants:                ' .
+    count($canonicalVariantFullCodes);
+
+$output[] =
+    'WooCommerce variations:            ' .
+    count($wooCommerceVariantSkus);
+
+$output[] =
+    'Matched variants:                   ' .
+    count($matchedVariantSkus);
+
+$output[] =
+    'New supplier variants:              ' .
+    count($canonicalOnlyVariantSkus);
+
+$output[] =
+    'WooCommerce-only variants:          ' .
+    count($wooCommerceOnlyVariantSkus);
+
+$output[] =
+    'Duplicate WooCommerce SKUs:         ' .
+    count($duplicateWooCommerceVariantSkus);
 
 $output[] = '';
 
