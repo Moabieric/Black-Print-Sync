@@ -2044,6 +2044,331 @@ $output[] =
 
 $output[] = '';
 
+/*
+|--------------------------------------------------------------------------
+| Unmatched Variant Sampling
+|--------------------------------------------------------------------------
+|
+| Read-only diagnostic.
+|
+| Samples a small number of unmatched canonical and WooCommerce
+| variant SKUs for manual inspection.
+|
+| This intentionally does NOT load the WooCommerce variation
+| catalogue again.
+|
+*/
+
+$unmatchedVariantSampleSize = 20;
+
+$canonicalOnlyVariantSample =
+    array_slice(
+        array_keys(
+            $canonicalOnlyVariantSkus
+        ),
+        0,
+        $unmatchedVariantSampleSize
+    );
+
+$wooCommerceOnlyVariantSample =
+    array_slice(
+        array_keys(
+            $wooCommerceOnlyVariantSkus
+        ),
+        0,
+        $unmatchedVariantSampleSize
+    );
+
+
+/*
+|--------------------------------------------------------------------------
+| Build canonical metadata lookup for sampled unmatched variants
+|--------------------------------------------------------------------------
+*/
+
+$canonicalVariantSampleData = [];
+
+if ($products !== null) {
+
+    foreach (
+        $products->all()
+        as $product
+    ) {
+
+        $data =
+            $product->toArray();
+
+        $identity =
+            $data['identity']
+            ?? [];
+
+        $variants =
+            $data['variants']
+            ?? [];
+
+        if (
+            ! is_array($variants)
+            || empty($variants)
+        ) {
+            continue;
+        }
+
+        foreach (
+            $variants
+            as $variant
+        ) {
+
+            if (
+                ! is_array($variant)
+            ) {
+                continue;
+            }
+
+            $fullCode =
+                $variant['fullCode']
+                ?? null;
+
+            if (
+                ! is_string($fullCode)
+                || $fullCode === ''
+            ) {
+                continue;
+            }
+
+            if (
+                ! isset(
+                    $canonicalOnlyVariantSkus[
+                        $fullCode
+                    ]
+                )
+            ) {
+                continue;
+            }
+
+            if (
+                ! in_array(
+                    $fullCode,
+                    $canonicalOnlyVariantSample,
+                    true
+                )
+            ) {
+                continue;
+            }
+
+            $canonicalVariantSampleData[
+                $fullCode
+            ] = [
+                'supplier_product_id' =>
+                    $identity[
+                        'supplier_product_id'
+                    ] ?? null,
+
+                'supplier_product_code' =>
+                    $identity[
+                        'supplier_product_code'
+                    ] ?? null,
+
+                'simpleCode' =>
+                    $variant[
+                        'simpleCode'
+                    ] ?? null,
+
+                'fullCode' =>
+                    $fullCode,
+            ];
+        }
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Report
+|--------------------------------------------------------------------------
+*/
+
+$output[] =
+    'UNMATCHED VARIANT SAMPLE';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+$output[] =
+    'New supplier variants sampled:       ' .
+    count(
+        $canonicalOnlyVariantSample
+    );
+
+$output[] =
+    'WooCommerce-only variants sampled:   ' .
+    count(
+        $wooCommerceOnlyVariantSample
+    );
+
+$output[] = '';
+
+
+/*
+|--------------------------------------------------------------------------
+| New Supplier Variants
+|--------------------------------------------------------------------------
+*/
+
+$output[] =
+    'NEW SUPPLIER VARIANTS';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+if (
+    empty(
+        $canonicalOnlyVariantSample
+    )
+) {
+
+    $output[] =
+        'None';
+
+} else {
+
+    foreach (
+        $canonicalOnlyVariantSample
+        as $sku
+    ) {
+
+        $sample =
+            $canonicalVariantSampleData[
+                $sku
+            ] ?? [];
+
+        $output[] =
+            'SKU: ' .
+            $sku;
+
+        $output[] =
+            '  Supplier product ID: ' .
+            (
+                $sample[
+                    'supplier_product_id'
+                ] ?? ''
+            );
+
+        $output[] =
+            '  Supplier product code: ' .
+            (
+                $sample[
+                    'supplier_product_code'
+                ] ?? ''
+            );
+
+        $output[] =
+            '  simpleCode: ' .
+            (
+                $sample[
+                    'simpleCode'
+                ] ?? ''
+            );
+
+        $output[] =
+            '  fullCode: ' .
+            (
+                $sample[
+                    'fullCode'
+                ] ?? $sku
+            );
+
+        $output[] =
+            '  WooCommerce: NOT FOUND';
+
+        $output[] = '';
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| WooCommerce-only Variants
+|--------------------------------------------------------------------------
+*/
+
+$output[] =
+    'WOOCOMMERCE-ONLY VARIANTS';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+if (
+    empty(
+        $wooCommerceOnlyVariantSample
+    )
+) {
+
+    $output[] =
+        'None';
+
+} else {
+
+    foreach (
+        $wooCommerceOnlyVariantSample
+        as $sku
+    ) {
+
+        $variationId =
+            wc_get_product_id_by_sku(
+                $sku
+            );
+
+        $productId = null;
+
+        if (
+            $variationId
+            && function_exists(
+                'wp_get_post_parent_id'
+            )
+        ) {
+
+            $productId =
+                wp_get_post_parent_id(
+                    $variationId
+                );
+        }
+
+        $output[] =
+            'SKU: ' .
+            $sku;
+
+        $output[] =
+            '  Variation ID: ' .
+            (
+                $variationId
+                ?: 'NOT FOUND'
+            );
+
+        $output[] =
+            '  Parent product ID: ' .
+            (
+                $productId
+                ?: 'NOT FOUND'
+            );
+
+        $output[] =
+            '  Canonical: NOT FOUND';
+
+        $output[] = '';
+    }
+}
+
+$output[] = '';
+
 
         /*
         |--------------------------------------------------------------------------
