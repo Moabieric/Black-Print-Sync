@@ -8,9 +8,6 @@ defined('ABSPATH') || exit;
 
 /**
  * Immutable result of a product projection operation.
- *
- * The result describes what the projector determined should happen.
- * It does not itself perform any WooCommerce mutation.
  */
 final class ProjectionResult
 {
@@ -27,7 +24,7 @@ final class ProjectionResult
     }
 
     /**
-     * Create a successful projection plan.
+     * Create a successful projection plan result.
      *
      * No WooCommerce mutation has occurred.
      *
@@ -47,8 +44,6 @@ final class ProjectionResult
     /**
      * Create a successful "created" result.
      *
-     * Used by the future WooCommerce writer.
-     *
      * @param array<string, mixed> $data
      */
     public static function created(
@@ -66,8 +61,6 @@ final class ProjectionResult
     /**
      * Create a successful "updated" result.
      *
-     * Used by the future WooCommerce writer.
-     *
      * @param array<string, mixed> $data
      */
     public static function updated(
@@ -83,7 +76,10 @@ final class ProjectionResult
     }
 
     /**
-     * Create a successful result where no action is required.
+     * Create a successful result where no WooCommerce mutation occurred.
+     *
+     * This is used when a projection operation intentionally performs
+     * no mutation.
      *
      * @param array<string, mixed> $data
      */
