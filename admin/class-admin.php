@@ -53,6 +53,14 @@ final class Admin
                 'test_snapshot_normalization',
             ]
         );
+
+        add_action(
+            'admin_post_bp_test_woocommerce_projection',
+            [
+                $this,
+                'test_woocommerce_projection',
+            ]
+        );
     }
 
 
@@ -2736,6 +2744,867 @@ $output[] = '';
             ) .
             '</pre>'
         );
+    }
+}
+
+/**
+ * Run the WooCommerce projection verification test.
+ *
+ * This action:
+ *
+ * - Requires manage_woocommerce capability.
+ * - Verifies the admin nonce.
+ * - Loads an existing immutable snapshot.
+ * - Normalizes the snapshot into canonical products.
+ * - Projects every canonical product into a WooCommerce projection plan.
+ * - Verifies parent and variant structure.
+ * - Verifies identity and SKU consistency.
+ * - Verifies BlackPrint ownership metadata.
+ * - Does not persist canonical products.
+ * - Does not create or modify WooCommerce products.
+ */
+public function test_woocommerce_projection(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to run this projection test.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_test_woocommerce_projection'
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Existing Verified Snapshot
+    |--------------------------------------------------------------------------
+    */
+
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    /*
+    |--------------------------------------------------------------------------
+    | Execute Normalization
+    |--------------------------------------------------------------------------
+    */
+
+    try {
+
+        $result = bp_commerce()
+            ->normalization()
+            ->normalize(
+                $snapshotUuid
+            );
+
+        if (
+            ! $result->success()
+        ) {
+            wp_die(
+                esc_html(
+                    'Normalization failed: ' .
+                    (
+                        $result->errors()[0]
+                        ?? 'Unknown normalization error.'
+                    )
+                )
+            );
+        }
+
+        $products =
+            $result->products();
+
+        if (
+            $products === null
+        ) {
+            wp_die(
+                'Projection test aborted: no canonical product collection was returned.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Projector
+        |--------------------------------------------------------------------------
+        */
+
+        $projector =
+            new \BlackPrint\Commerce\Projection\WooCommerce\WooCommerceProductProjector();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Projection Statistics
+        |--------------------------------------------------------------------------
+        */
+
+        $canonicalProducts = 0;
+        $plannedProducts = 0;
+        $failedProducts = 0;
+
+        $variableParents = 0;
+        $variationChildren = 0;
+
+        $singleVariantProducts = 0;
+        $multipleVariantProducts = 0;
+
+        $missingParentIdentity = 0;
+        $missingVariantIdentity = 0;
+
+        $skuMismatches = 0;
+
+        $attributeProducts = 0;
+        $attributeVariants = 0;
+
+        $ownershipFailures = 0;
+        $decoupledProducts = 0;
+
+        $createdActions = 0;
+        $updatedActions = 0;
+        $skippedActions = 0;
+
+        $failures = [];
+        $skuMismatchDetails = [];
+        $ownershipFailureDetails = [];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Project Every Canonical Product
+        |--------------------------------------------------------------------------
+        */
+
+        foreach (
+            $products->all() as $product
+        ) {
+
+            $canonicalProducts++;
+
+            $canonical =
+                $product->toArray();
+
+            $projectionResult =
+                $projector->project(
+                    $canonical
+                );
+
+            /*
+            |--------------------------------------------------------------------------
+            | Projection Result
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                ! $projectionResult->success()
+            ) {
+
+                $failedProducts++;
+
+                $failures[] = [
+                    'message' =>
+                        $projectionResult->message(),
+
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+
+                continue;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Projection Must Be Planned
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                $projectionResult->action() === 'planned'
+            ) {
+
+                $plannedProducts++;
+
+            } elseif (
+                $projectionResult->action() === 'created'
+            ) {
+
+                $createdActions++;
+
+            } elseif (
+                $projectionResult->action() === 'updated'
+            ) {
+
+                $updatedActions++;
+
+            } elseif (
+                $projectionResult->action() === 'skipped'
+            ) {
+
+                $skippedActions++;
+            }
+
+            $projection =
+                $projectionResult->data();
+
+            /*
+            |--------------------------------------------------------------------------
+            | Parent Verification
+            |--------------------------------------------------------------------------
+            */
+
+            $parent =
+                $projection['parent']
+                ?? null;
+
+            if (
+                ! is_array($parent)
+            ) {
+
+                $failures[] = [
+                    'message' =>
+                        'Projection parent is missing or invalid.',
+
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+
+                $failedProducts++;
+
+                continue;
+            }
+
+            if (
+                ($parent['type'] ?? null)
+                === 'variable'
+            ) {
+
+                $variableParents++;
+
+            } else {
+
+                $failures[] = [
+                    'message' =>
+                        'Projection parent type is not variable.',
+
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+
+                $failedProducts++;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Parent Identity Verification
+            |--------------------------------------------------------------------------
+            */
+
+            $parentIdentity =
+                $parent['identity']
+                ?? [];
+
+            if (
+                ! is_array($parentIdentity)
+                || ! is_string(
+                    $parentIdentity['supplier_product_id']
+                    ?? null
+                )
+                || $parentIdentity['supplier_product_id'] === ''
+                || ! is_string(
+                    $parentIdentity['supplier_product_code']
+                    ?? null
+                )
+                || $parentIdentity['supplier_product_code'] === ''
+            ) {
+
+                $missingParentIdentity++;
+
+                $failures[] = [
+                    'message' =>
+                        'Projection parent identity is incomplete.',
+
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Decoupled Product Preservation
+            |--------------------------------------------------------------------------
+            */
+
+            $hierarchy =
+                $parent['hierarchy']
+                ?? [];
+
+            if (
+                is_array($hierarchy)
+                && ! empty(
+                    $hierarchy['decoupled']
+                    ?? false
+                )
+            ) {
+
+                $decoupledProducts++;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Parent Attributes
+            |--------------------------------------------------------------------------
+            */
+
+            $classification =
+                $parent['classification']
+                ?? [];
+
+            $parentAttributes =
+                $classification['attributes']
+                ?? [];
+
+            if (
+                is_array($parentAttributes)
+                && $parentAttributes !== []
+            ) {
+
+                $attributeProducts++;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Variant Verification
+            |--------------------------------------------------------------------------
+            */
+
+            $variants =
+                $projection['variants']
+                ?? [];
+
+            if (
+                ! is_array($variants)
+                || $variants === []
+            ) {
+
+                $failures[] = [
+                    'message' =>
+                        'Projection contains no variants.',
+
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+
+                $failedProducts++;
+
+                continue;
+            }
+
+            if (
+                count($variants) === 1
+            ) {
+
+                $singleVariantProducts++;
+
+            } else {
+
+                $multipleVariantProducts++;
+            }
+
+            foreach (
+                $variants as $variant
+            ) {
+
+                $variationChildren++;
+
+                if (
+                    ! is_array($variant)
+                    || ($variant['type'] ?? null)
+                    !== 'variation'
+                ) {
+
+                    $failures[] = [
+                        'message' =>
+                            'Projection variant is not a variation.',
+
+                        'identity' =>
+                            $canonical['identity']
+                            ?? [],
+                    ];
+
+                    $failedProducts++;
+
+                    continue;
+                }
+
+                $variantIdentity =
+                    $variant['identity']
+                    ?? [];
+
+                if (
+                    ! is_array($variantIdentity)
+                    || ! is_string(
+                        $variantIdentity['simple_code']
+                        ?? null
+                    )
+                    || $variantIdentity['simple_code'] === ''
+                    || ! is_string(
+                        $variantIdentity['full_code']
+                        ?? null
+                    )
+                    || $variantIdentity['full_code'] === ''
+                ) {
+
+                    $missingVariantIdentity++;
+
+                    $failures[] = [
+                        'message' =>
+                            'Projection variant identity is incomplete.',
+
+                        'identity' =>
+                            $canonical['identity']
+                            ?? [],
+                    ];
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | SKU Verification
+                |--------------------------------------------------------------------------
+                */
+
+                $sku =
+                    $variant['sku']
+                    ?? null;
+
+                $fullCode =
+                    $variantIdentity['full_code']
+                    ?? null;
+
+                if (
+                    ! is_string($sku)
+                    || ! is_string($fullCode)
+                    || $sku !== $fullCode
+                ) {
+
+                    $skuMismatches++;
+
+                    $skuMismatchDetails[] = [
+                        'sku' => $sku,
+                        'full_code' => $fullCode,
+                        'identity' =>
+                            $canonical['identity']
+                            ?? [],
+                    ];
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Variant Attributes
+                |--------------------------------------------------------------------------
+                */
+
+                $variantAttributes =
+                    $variant['attributes']
+                    ?? [];
+
+                if (
+                    is_array($variantAttributes)
+                    && $variantAttributes !== []
+                ) {
+
+                    $attributeVariants++;
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Ownership Metadata
+                |--------------------------------------------------------------------------
+                */
+
+                $meta =
+                    $variant['meta']
+                    ?? [];
+
+                if (
+                    ! is_array($meta)
+                    || ($meta['_blackprint_managed'] ?? null)
+                    !== 'yes'
+                    || ($meta['_blackprint_supplier'] ?? null)
+                    !== (
+                        $canonical['provenance']['supplier']
+                        ?? null
+                    )
+                    || ($meta['_blackprint_variant_code'] ?? null)
+                    !== $fullCode
+                ) {
+
+                    $ownershipFailures++;
+
+                    $ownershipFailureDetails[] = [
+                        'identity' =>
+                            $canonical['identity']
+                            ?? [],
+
+                        'variant' =>
+                            $variantIdentity,
+                    ];
+                }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Parent Ownership Metadata
+            |--------------------------------------------------------------------------
+            */
+
+            $parentMeta =
+                $parent['meta']
+                ?? [];
+
+            if (
+                ! is_array($parentMeta)
+                || ($parentMeta['_blackprint_managed'] ?? null)
+                !== 'yes'
+                || ($parentMeta['_blackprint_supplier'] ?? null)
+                !== (
+                    $canonical['provenance']['supplier']
+                    ?? null
+                )
+                || ($parentMeta['_blackprint_product_id'] ?? null)
+                !== (
+                    $canonical['identity']['supplier_product_id']
+                    ?? null
+                )
+                || ($parentMeta['_blackprint_product_code'] ?? null)
+                !== (
+                    $canonical['identity']['supplier_product_code']
+                    ?? null
+                )
+            ) {
+
+                $ownershipFailures++;
+
+                $ownershipFailureDetails[] = [
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Determine Verification Status
+        |--------------------------------------------------------------------------
+        */
+
+        $status =
+            (
+                $canonicalProducts > 0
+                && $failedProducts === 0
+                && $plannedProducts === $canonicalProducts
+                && $createdActions === 0
+                && $updatedActions === 0
+                && $skippedActions === 0
+                && $missingParentIdentity === 0
+                && $missingVariantIdentity === 0
+                && $skuMismatches === 0
+                && $ownershipFailures === 0
+            )
+                ? 'PASS'
+                : 'FAILED';
+
+        /*
+        |--------------------------------------------------------------------------
+        | Build Human-Readable Report
+        |--------------------------------------------------------------------------
+        */
+
+        $output = [];
+
+        $output[] =
+            'TEST VERSION: WOOCOMMERCE PROJECTION v1';
+
+        $output[] = '';
+
+        $output[] =
+            'BlackPrint OS — WooCommerce Projection Verification';
+
+        $output[] =
+            str_repeat('=', 64);
+
+        $output[] = '';
+
+        $output[] = 'SNAPSHOT';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'UUID: ' .
+            $snapshotUuid;
+
+        $output[] = '';
+
+        $output[] = 'PROJECTION';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'Canonical products:       ' .
+            $canonicalProducts;
+
+        $output[] =
+            'Planned projections:      ' .
+            $plannedProducts;
+
+        $output[] =
+            'Failed projections:       ' .
+            $failedProducts;
+
+        $output[] =
+            'Created actions:          ' .
+            $createdActions;
+
+        $output[] =
+            'Updated actions:          ' .
+            $updatedActions;
+
+        $output[] =
+            'Skipped actions:          ' .
+            $skippedActions;
+
+        $output[] =
+            'Status:                   ' .
+            $status;
+
+        $output[] = '';
+
+        $output[] = 'PARENT STRUCTURE';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'Variable parents:         ' .
+            $variableParents;
+
+        $output[] =
+            'Decoupled products:       ' .
+            $decoupledProducts;
+
+        $output[] =
+            'Single-variant products:  ' .
+            $singleVariantProducts;
+
+        $output[] =
+            'Multi-variant products:   ' .
+            $multipleVariantProducts;
+
+        $output[] = '';
+
+        $output[] = 'VARIATION STRUCTURE';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'Variation children:       ' .
+            $variationChildren;
+
+        $output[] =
+            'Missing variant identity: ' .
+            $missingVariantIdentity;
+
+        $output[] =
+            'SKU mismatches:            ' .
+            $skuMismatches;
+
+        $output[] = '';
+
+        $output[] = 'ATTRIBUTES';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'Products with attributes: ' .
+            $attributeProducts;
+
+        $output[] =
+            'Variants with attributes:  ' .
+            $attributeVariants;
+
+        $output[] = '';
+
+        $output[] = 'OWNERSHIP';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'Ownership failures:        ' .
+            $ownershipFailures;
+
+        $output[] = '';
+
+        if (
+            $skuMismatchDetails !== []
+        ) {
+
+            $output[] =
+                'SKU MISMATCH DETAILS';
+
+            $output[] =
+                str_repeat('-', 64);
+
+            foreach (
+                array_slice(
+                    $skuMismatchDetails,
+                    0,
+                    20
+                ) as $detail
+            ) {
+
+                $output[] =
+                    'SKU=' .
+                    wp_json_encode(
+                        $detail['sku']
+                    ) .
+                    ' fullCode=' .
+                    wp_json_encode(
+                        $detail['full_code']
+                    ) .
+                    ' identity=' .
+                    wp_json_encode(
+                        $detail['identity']
+                    );
+            }
+
+            $output[] = '';
+        }
+
+        if (
+            $ownershipFailureDetails !== []
+        ) {
+
+            $output[] =
+                'OWNERSHIP FAILURE DETAILS';
+
+            $output[] =
+                str_repeat('-', 64);
+
+            foreach (
+                array_slice(
+                    $ownershipFailureDetails,
+                    0,
+                    20
+                ) as $detail
+            ) {
+
+                $output[] =
+                    'identity=' .
+                    wp_json_encode(
+                        $detail['identity']
+                    );
+
+                if (
+                    isset(
+                        $detail['variant']
+                    )
+                ) {
+
+                    $output[] =
+                        'variant=' .
+                        wp_json_encode(
+                            $detail['variant']
+                        );
+                }
+            }
+
+            $output[] = '';
+        }
+
+        if (
+            $failures !== []
+        ) {
+
+            $output[] =
+                'FAILURES';
+
+            $output[] =
+                str_repeat('-', 64);
+
+            foreach (
+                array_slice(
+                    $failures,
+                    0,
+                    20
+                ) as $failure
+            ) {
+
+                $output[] =
+                    'message=' .
+                    (
+                        $failure['message']
+                        ?? 'Unknown failure'
+                    ) .
+                    ' identity=' .
+                    wp_json_encode(
+                        $failure['identity']
+                        ?? []
+                    );
+            }
+
+            $output[] = '';
+        }
+
+        $output[] =
+            str_repeat('=', 64);
+
+        $output[] =
+            'FINAL STATUS: ' .
+            $status;
+
+        echo '<pre>';
+
+        echo esc_html(
+            implode(
+                "\n",
+                $output
+            )
+        );
+
+        echo '</pre>';
+
+    } catch (
+        \Throwable $e
+    ) {
+
+        echo '<pre>';
+
+        echo esc_html(
+            'Projection test exception: ' .
+            $e->getMessage()
+        );
+
+        echo "\n";
+
+        echo esc_html(
+            $e->getFile() .
+            ':' .
+            $e->getLine()
+        );
+
+        echo '</pre>';
     }
 }
 

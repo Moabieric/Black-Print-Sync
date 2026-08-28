@@ -461,3 +461,44 @@ Snapshot UUID
         Run Snapshot Normalization Test
     </button>
 </form>
+
+<hr>
+
+<h2>WooCommerce Projection Verification</h2>
+
+<p>
+    Run the read-only WooCommerce projection verification test.
+    This will normalize the existing verified snapshot and generate
+    WooCommerce projection plans for inspection.
+</p>
+
+<p>
+    <strong>No WooCommerce products or variations will be created,
+    updated, or deleted.</strong>
+</p>
+
+<form
+    method="post"
+    action="<?php echo esc_url(
+        admin_url('admin-post.php')
+    ); ?>"
+>
+    <input
+        type="hidden"
+        name="action"
+        value="bp_test_woocommerce_projection"
+    >
+
+    <?php
+    wp_nonce_field(
+        'bp_test_woocommerce_projection'
+    );
+    ?>
+
+    <button
+        type="submit"
+        class="button button-secondary"
+    >
+        Run WooCommerce Projection Verification
+    </button>
+</form>
