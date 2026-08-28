@@ -74,8 +74,8 @@ final class Loader
      * Load all plugin dependencies.
      */
     private function loadDependencies(): void
-{
-    $this->loadCoreDependencies();
+    {
+        $this->loadCoreDependencies();
 
     $this->loadSupplierDependencies();
 
@@ -85,8 +85,11 @@ final class Loader
 
     $this->loadNormalizationDependencies();
 
+    $this->loadProjectionDependencies();
+
     $this->loadAdminDependencies();
 }
+
 
 
     /**
@@ -139,6 +142,15 @@ final class Loader
     }
 
     /**
+     * Load projection dependencies.
+     */
+    private function loadProjectionDependencies(): void
+    {
+        require_once BP_COMMERCE_PATH
+            . 'includes/bootstrap/class-projection-dependencies.php';
+    }
+
+            /**
      * Load admin dependencies.
      */
     private function loadAdminDependencies(): void
