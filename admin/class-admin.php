@@ -61,6 +61,14 @@ final class Admin
                 'test_woocommerce_projection',
             ]
         );
+
+        add_action(
+            'admin_post_bp_test_woocommerce_execution_decisions',
+            [
+                $this,
+                'test_woocommerce_execution_decisions',
+            ]
+        );
     }
 
 
@@ -3851,5 +3859,392 @@ public function test_woocommerce_projection(): void
 
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-branding.php';
+    }
+}
+
+public function test_woocommerce_execution_decisions(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to run this execution decision test.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_test_woocommerce_execution_decisions'
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Existing Verified Snapshot
+    |--------------------------------------------------------------------------
+    */
+
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normalize Snapshot
+        |--------------------------------------------------------------------------
+        */
+
+        $normalizationResult =
+            bp_commerce()
+                ->normalization()
+                ->normalize(
+                    $snapshotUuid
+                );
+
+        if (
+            ! $normalizationResult->success()
+        ) {
+
+            wp_die(
+                esc_html(
+                    'Normalization failed: ' .
+                    (
+                        $normalizationResult->errors()[0]
+                        ?? 'Unknown normalization error.'
+                    )
+                )
+            );
+        }
+
+        $products =
+            $normalizationResult->products();
+
+        if (
+            $products === null
+        ) {
+
+            wp_die(
+                'Execution decision test aborted: no canonical product collection was returned.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Projection Components
+        |--------------------------------------------------------------------------
+        */
+
+        $projector =
+            new \BlackPrint\Commerce\Projection\WooCommerce\WooCommerceProductProjector();
+
+        $executor =
+            new \BlackPrint\Commerce\Projection\WooCommerce\WooCommerceProjectionExecutor();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Statistics
+        |--------------------------------------------------------------------------
+        */
+
+        $canonicalProducts = 0;
+        $successfulDecisions = 0;
+
+        $createDecisions = 0;
+        $updateDecisions = 0;
+
+        $failedDecisions = 0;
+        $invalidDecisions = 0;
+
+        $failures = [];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Process Every Canonical Product
+        |--------------------------------------------------------------------------
+        */
+
+        foreach (
+            $products->all() as $product
+        ) {
+
+            $canonicalProducts++;
+
+            $canonical =
+                $product->toArray();
+
+            /*
+            |--------------------------------------------------------------------------
+            | Build Projection Plan
+            |--------------------------------------------------------------------------
+            */
+
+            $projectionResult =
+                $projector->project(
+                    $canonical
+                );
+
+            if (
+                ! $projectionResult->success()
+            ) {
+
+                $failedDecisions++;
+
+                $failures[] = [
+                    'stage' => 'projection',
+                    'message' =>
+                        $projectionResult->message(),
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+
+                continue;
+            }
+
+            $projection =
+                $projectionResult->data();
+
+            /*
+            |--------------------------------------------------------------------------
+            | Execute Decision-Only Lookup
+            |--------------------------------------------------------------------------
+            */
+
+            $executionResult =
+                $executor->execute(
+                    $projection
+                );
+
+            if (
+                ! $executionResult->success()
+            ) {
+
+                $failedDecisions++;
+
+                $failures[] = [
+                    'stage' => 'execution',
+                    'message' =>
+                        $executionResult->message(),
+                    'identity' =>
+                        $canonical['identity']
+                        ?? [],
+                ];
+
+                continue;
+            }
+
+            $decision =
+                $executionResult->data()['decision']
+                ?? null;
+
+            if (
+                $decision === 'create'
+            ) {
+
+                $createDecisions++;
+                $successfulDecisions++;
+
+                continue;
+            }
+
+            if (
+                $decision === 'update'
+            ) {
+
+                $updateDecisions++;
+                $successfulDecisions++;
+
+                continue;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Unexpected Decision
+            |--------------------------------------------------------------------------
+            */
+
+            $invalidDecisions++;
+
+            $failures[] = [
+                'stage' => 'decision',
+                'message' =>
+                    'Executor returned an unexpected execution decision.',
+                'identity' =>
+                    $canonical['identity']
+                    ?? [],
+            ];
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Determine Verification Status
+        |--------------------------------------------------------------------------
+        */
+
+        $status =
+            (
+                $canonicalProducts > 0
+                && $failedDecisions === 0
+                && $invalidDecisions === 0
+                && $successfulDecisions === $canonicalProducts
+                && (
+                    $createDecisions
+                    + $updateDecisions
+                ) === $canonicalProducts
+            )
+                ? 'PASS'
+                : 'FAILED';
+
+        /*
+        |--------------------------------------------------------------------------
+        | Build Report
+        |--------------------------------------------------------------------------
+        */
+
+        $output = [];
+
+        $output[] =
+            'TEST VERSION: WOOCOMMERCE EXECUTION DECISIONS v1';
+
+        $output[] = '';
+
+        $output[] =
+            'BlackPrint OS — WooCommerce Execution Decision Verification';
+
+        $output[] =
+            str_repeat('=', 64);
+
+        $output[] = '';
+
+        $output[] = 'SNAPSHOT';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'UUID: ' .
+            $snapshotUuid;
+
+        $output[] = '';
+
+        $output[] = 'EXECUTION DECISIONS';
+
+        $output[] =
+            str_repeat('-', 64);
+
+        $output[] =
+            'Canonical products:       ' .
+            $canonicalProducts;
+
+        $output[] =
+            'Successful decisions:     ' .
+            $successfulDecisions;
+
+        $output[] =
+            'Create decisions:         ' .
+            $createDecisions;
+
+        $output[] =
+            'Update decisions:         ' .
+            $updateDecisions;
+
+        $output[] =
+            'Failed decisions:         ' .
+            $failedDecisions;
+
+        $output[] =
+            'Invalid decisions:        ' .
+            $invalidDecisions;
+
+        $output[] =
+            'Status:                   ' .
+            $status;
+
+        $output[] = '';
+
+        /*
+        |--------------------------------------------------------------------------
+        | Failure Details
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $failures !== []
+        ) {
+
+            $output[] =
+                'FAILURES';
+
+            $output[] =
+                str_repeat('-', 64);
+
+            foreach (
+                array_slice(
+                    $failures,
+                    0,
+                    20
+                ) as $failure
+            ) {
+
+                $output[] =
+                    'stage=' .
+                    (
+                        $failure['stage']
+                        ?? 'unknown'
+                    ) .
+                    ' message=' .
+                    (
+                        $failure['message']
+                        ?? 'Unknown failure'
+                    ) .
+                    ' identity=' .
+                    wp_json_encode(
+                        $failure['identity']
+                        ?? []
+                    );
+            }
+
+            $output[] = '';
+        }
+
+        $output[] =
+            str_repeat('=', 64);
+
+        $output[] =
+            'FINAL STATUS: ' .
+            $status;
+
+        echo '<pre>';
+
+        echo esc_html(
+            implode(
+                "\n",
+                $output
+            )
+        );
+
+        echo '</pre>';
+
+    } catch (
+        \Throwable $e
+    ) {
+
+        echo '<pre>';
+
+        echo esc_html(
+            'Execution decision test exception: ' .
+            $e->getMessage()
+        );
+
+        echo "\n";
+
+        echo esc_html(
+            $e->getFile() .
+            ':' .
+            $e->getLine()
+        );
+
+        echo '</pre>';
     }
 }

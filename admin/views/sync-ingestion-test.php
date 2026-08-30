@@ -502,3 +502,50 @@ Snapshot UUID
         Run WooCommerce Projection Verification
     </button>
 </form>
+
+<hr>
+
+<h2>WooCommerce Execution Decision Verification</h2>
+
+<p>
+    Run the WooCommerce executor in decision-only mode against the
+    verified snapshot.
+</p>
+
+<p>
+    This test determines whether each projected product would be
+    created or updated using BlackPrint ownership identity.
+</p>
+
+<p>
+    <strong>
+        No WooCommerce products or variations will be created,
+        updated, or deleted.
+    </strong>
+</p>
+
+<form
+    method="post"
+    action="<?php echo esc_url(
+        admin_url('admin-post.php')
+    ); ?>"
+>
+    <input
+        type="hidden"
+        name="action"
+        value="bp_test_woocommerce_execution_decisions"
+    >
+
+    <?php
+    wp_nonce_field(
+        'bp_test_woocommerce_execution_decisions'
+    );
+    ?>
+
+    <button
+        type="submit"
+        class="button button-secondary"
+    >
+        Run WooCommerce Execution Decision Verification
+    </button>
+</form>
