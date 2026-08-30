@@ -3860,7 +3860,7 @@ public function test_woocommerce_projection(): void
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-branding.php';
     }
-}
+
 
 public function test_woocommerce_execution_decisions(): void
 {
