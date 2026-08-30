@@ -18,6 +18,7 @@ defined('ABSPATH') || exit;
  *
  * The executor must never receive supplier payloads directly.
  */
+  
 final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
 {
     /**
@@ -141,20 +142,12 @@ return ProjectionResult::skipped(
 );
 }
 
-
 /**
  * Locate an existing BlackPrint-managed WooCommerce parent product.
  *
  * Products are identified exclusively through BlackPrint ownership
  * metadata. The executor must never adopt an arbitrary WooCommerce
  * product based on a name, SKU, or other non-ownership identifier.
- *
- * @param array<string, mixed> $parent
- *
- * @return array{
- *     status: 'not_found'|'found'|'duplicate'|'invalid',
- *     product_id: ?int
- * }
  */
 
 private function findExistingParent(
