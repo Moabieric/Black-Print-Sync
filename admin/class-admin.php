@@ -4248,3 +4248,4 @@ public function test_woocommerce_execution_decisions(): void
         echo '</pre>';
     }
 }
+}
