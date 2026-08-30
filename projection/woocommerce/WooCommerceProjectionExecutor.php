@@ -139,8 +139,8 @@ return ProjectionResult::skipped(
         'projection' => $projection,
     ]
 );
-    }
 }
+
 
 /**
  * Locate an existing BlackPrint-managed WooCommerce parent product.
@@ -156,6 +156,7 @@ return ProjectionResult::skipped(
  *     product_id: ?int
  * }
  */
+
 private function findExistingParent(
     array $parent
 ): array {
