@@ -286,3 +286,4 @@ private function findExistingParent(
         'product_id' => (int) $productId,
     ];
 }
+}
