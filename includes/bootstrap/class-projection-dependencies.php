@@ -26,7 +26,17 @@ require_once BP_COMMERCE_PATH
 require_once BP_COMMERCE_PATH
     . 'projection/woocommerce/WooCommerceProjectionExecutor.php';
 
-    /*
+
+/*
+|--------------------------------------------------------------------------
+| DTO
+|--------------------------------------------------------------------------
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'projection/dto/ProjectionResult.php';
+
+ /*
 |--------------------------------------------------------------------------
 | Contracts
 |--------------------------------------------------------------------------
@@ -37,16 +47,6 @@ require_once BP_COMMERCE_PATH
 
 require_once BP_COMMERCE_PATH
     . 'projection/contracts/ProjectionExecutorInterface.php';
-
-
-/*
-|--------------------------------------------------------------------------
-| DTO
-|--------------------------------------------------------------------------
-*/
-
-require_once BP_COMMERCE_PATH
-    . 'projection/dto/ProjectionResult.php';
 
 
 /*
