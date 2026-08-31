@@ -15,10 +15,11 @@ defined('ABSPATH') || exit;
  * This class is the mutation boundary between the BlackPrint projection
  * layer and WooCommerce.
  *
- * Step 12.1:
+ * Step 12.1.2:
  *
- * - Creates a controlled BlackPrint-managed variable parent.
- * - Does not create variations.
+ * - Creates a controlled BlackPrint-managed variable parent when required.
+ * - Creates one controlled BlackPrint-managed variation beneath an existing
+ *   BlackPrint-managed parent.
  * - Does not write pricing.
  * - Does not write stock.
  * - Does not write images.
@@ -111,8 +112,8 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         | Existing Parent Lookup
         |--------------------------------------------------------------------------
         |
-        | A projection may only update a product that is explicitly identified
-        | as BlackPrint-managed.
+        | A projection may only update or extend a product that is explicitly
+        | identified as BlackPrint-managed.
         |
         | We never adopt arbitrary WooCommerce products.
         |
@@ -148,6 +149,12 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         |--------------------------------------------------------------------------
         | Controlled Parent Creation
         |--------------------------------------------------------------------------
+        |
+        | This preserves the accepted 12.1.1 behaviour.
+        |
+        | If the parent does not exist, create only the parent.
+        | No variation is created during this branch.
+        |
         */
 
         if (
@@ -164,10 +171,10 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         | Existing Parent
         |--------------------------------------------------------------------------
         |
-        | UPDATE is intentionally not implemented in Step 12.1.
+        | Step 12.1.2:
         |
-        | The existing product is identified correctly, but mutation of that
-        | existing product belongs to the controlled update phase.
+        | The parent is already known and explicitly BlackPrint-managed.
+        | We may now create ONE controlled variation beneath it.
         |
         */
 
@@ -184,12 +191,81 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
             );
         }
 
-        return ProjectionResult::skipped(
-            'Existing BlackPrint-managed WooCommerce product would be updated in a later projection phase.',
-            [
-                'decision' => 'update',
-                'product_id' => $productId,
-            ]
+        /*
+        |--------------------------------------------------------------------------
+        | Existing Parent Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $existingParent =
+            wc_get_product(
+                $productId
+            );
+
+        if (
+            ! $existingParent
+        ) {
+
+            return ProjectionResult::failed(
+                'Existing WooCommerce parent could not be reloaded.'
+            );
+        }
+
+        if (
+            $existingParent->get_type()
+            !== 'variable'
+        ) {
+
+            return ProjectionResult::failed(
+                'Existing BlackPrint-managed parent is not a variable product.'
+            );
+        }
+
+        if (
+            $existingParent->get_meta(
+                '_blackprint_managed'
+            )
+            !== 'yes'
+        ) {
+
+            return ProjectionResult::failed(
+                'Existing WooCommerce parent is not BlackPrint-managed.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Controlled Variant Selection
+        |--------------------------------------------------------------------------
+        |
+        | Step 12.1.2 deliberately creates exactly ONE variant.
+        |
+        | The first canonical variant is selected for the controlled test.
+        |
+        */
+
+        $variant =
+            $variants[0]
+            ?? null;
+
+        if (
+            ! is_array($variant)
+        ) {
+
+            return ProjectionResult::failed(
+                'Controlled variant creation requires a valid first variant.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Controlled Variant Creation
+        |--------------------------------------------------------------------------
+        */
+
+        return $this->createVariation(
+            parentId: $productId,
+            variant: $variant
         );
     }
 
@@ -487,9 +563,6 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         |--------------------------------------------------------------------------
         | Controlled Ownership Metadata
         |--------------------------------------------------------------------------
-        |
-        | Only BlackPrint ownership metadata is written in Step 12.1.
-        |
         */
 
         $product->update_meta_data(
@@ -547,10 +620,6 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         |--------------------------------------------------------------------------
         | Post-Save Ownership Verification
         |--------------------------------------------------------------------------
-        |
-        | Confirm that the product we just created is actually BlackPrint
-        | managed before reporting success.
-        |
         */
 
         $savedProduct =
@@ -642,6 +711,490 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
                     $identity['supplier_product_id'],
                 'supplier_product_code' =>
                     $identity['supplier_product_code'],
+            ]
+        );
+    }
+
+    /**
+     * Create one controlled BlackPrint-managed WooCommerce variation.
+     *
+     * Step 12.1.2 deliberately creates exactly one variation.
+     *
+     * @param int $parentId
+     * @param array<string, mixed> $variant
+     */
+    private function createVariation(
+        int $parentId,
+        array $variant
+    ): ProjectionResult {
+
+        if (
+            ! class_exists(
+                'WC_Product_Variation'
+            )
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce WC_Product_Variation is unavailable.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Variant Identity
+        |--------------------------------------------------------------------------
+        */
+
+        $identity =
+            $variant['identity']
+            ?? null;
+
+        if (
+            ! is_array($identity)
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant is missing valid projection identity.'
+            );
+        }
+
+        $supplier =
+            $identity['supplier']
+            ?? null;
+
+        $simpleCode =
+            $identity['simple_code']
+            ?? null;
+
+        $fullCode =
+            $identity['full_code']
+            ?? null;
+
+        if (
+            ! is_string($supplier)
+            || $supplier === ''
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant is missing supplier identity.'
+            );
+        }
+
+        if (
+            ! is_string($simpleCode)
+            || $simpleCode === ''
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant is missing simple_code.'
+            );
+        }
+
+        if (
+            ! is_string($fullCode)
+            || $fullCode === ''
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant is missing full_code.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Commerce Identity
+        |--------------------------------------------------------------------------
+        */
+
+        $sku =
+            $variant['sku']
+            ?? null;
+
+        if (
+            ! is_string($sku)
+            || $sku === ''
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant is missing SKU.'
+            );
+        }
+
+        if (
+            $sku !== $fullCode
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant SKU does not match full_code.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parent Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $parent =
+            wc_get_product(
+                $parentId
+            );
+
+        if (
+            ! $parent
+        ) {
+
+            return ProjectionResult::failed(
+                'Variation parent could not be loaded.'
+            );
+        }
+
+        if (
+            $parent->get_type()
+            !== 'variable'
+        ) {
+
+            return ProjectionResult::failed(
+                'Variation parent is not a variable WooCommerce product.'
+            );
+        }
+
+        if (
+            $parent->get_meta(
+                '_blackprint_managed'
+            )
+            !== 'yes'
+        ) {
+
+            return ProjectionResult::failed(
+                'Variation parent is not BlackPrint-managed.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Duplicate Variation Safety
+        |--------------------------------------------------------------------------
+        |
+        | Never create a second BlackPrint-managed variation with the same
+        | canonical fullCode beneath this parent.
+        |
+        */
+
+        $existingVariationIds =
+            get_posts(
+                [
+                    'post_type' =>
+                        'product_variation',
+
+                    'post_status' =>
+                        'any',
+
+                    'posts_per_page' =>
+                        2,
+
+                    'fields' =>
+                        'ids',
+
+                    'post_parent' =>
+                        $parentId,
+
+                    'meta_query' =>
+                        [
+                            'relation' =>
+                                'AND',
+
+                            [
+                                'key' =>
+                                    '_blackprint_managed',
+
+                                'value' =>
+                                    'yes',
+                            ],
+
+                            [
+                                'key' =>
+                                    '_blackprint_supplier',
+
+                                'value' =>
+                                    $supplier,
+                            ],
+
+                            [
+                                'key' =>
+                                    '_blackprint_variant_code',
+
+                                'value' =>
+                                    $fullCode,
+                            ],
+                        ],
+                ]
+            );
+
+        if (
+            is_array($existingVariationIds)
+            && $existingVariationIds !== []
+        ) {
+
+            return ProjectionResult::failed(
+                'A BlackPrint-managed WooCommerce variation already exists for full_code: ' .
+                $fullCode
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Variant Attributes
+        |--------------------------------------------------------------------------
+        */
+
+        $attributes =
+            $variant['attributes']
+            ?? [];
+
+        if (
+            ! is_array($attributes)
+        ) {
+
+            return ProjectionResult::failed(
+                'Canonical variant attributes are invalid.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Variation
+        |--------------------------------------------------------------------------
+        */
+
+        $variation =
+            new \WC_Product_Variation();
+
+        $variation->set_parent_id(
+            $parentId
+        );
+
+        $variation->set_sku(
+            $sku
+        );
+
+        if (
+            $attributes !== []
+        ) {
+
+            $variation->set_attributes(
+                $attributes
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Controlled Ownership Metadata
+        |--------------------------------------------------------------------------
+        */
+
+        $variation->update_meta_data(
+            '_blackprint_managed',
+            'yes'
+        );
+
+        $variation->update_meta_data(
+            '_blackprint_supplier',
+            $supplier
+        );
+
+        $variation->update_meta_data(
+            '_blackprint_variant_code',
+            $fullCode
+        );
+
+        $variation->update_meta_data(
+            '_blackprint_simple_code',
+            $simpleCode
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Save
+        |--------------------------------------------------------------------------
+        */
+
+        try {
+
+            $variationId =
+                $variation->save();
+
+        } catch (
+            \Throwable $exception
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation creation failed: ' .
+                $exception->getMessage()
+            );
+        }
+
+        if (
+            ! is_int($variationId)
+            || $variationId <= 0
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation creation returned an invalid product ID.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Post-Save Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $savedVariation =
+            wc_get_product(
+                $variationId
+            );
+
+        if (
+            ! $savedVariation
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation was created but could not be reloaded.'
+            );
+        }
+
+        if (
+            $savedVariation->get_type()
+            !== 'variation'
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation was created with an unexpected product type.'
+            );
+        }
+
+        if (
+            $savedVariation->get_parent_id()
+            !== $parentId
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation parent verification failed.'
+            );
+        }
+
+        if (
+            $savedVariation->get_sku()
+            !== $fullCode
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation SKU verification failed.'
+            );
+        }
+
+        if (
+            $savedVariation->get_meta(
+                '_blackprint_managed'
+            )
+            !== 'yes'
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation was created without BlackPrint ownership metadata.'
+            );
+        }
+
+        if (
+            $savedVariation->get_meta(
+                '_blackprint_supplier'
+            )
+            !== $supplier
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation supplier ownership verification failed.'
+            );
+        }
+
+        if (
+            $savedVariation->get_meta(
+                '_blackprint_variant_code'
+            )
+            !== $fullCode
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation full_code ownership verification failed.'
+            );
+        }
+
+        if (
+            $savedVariation->get_meta(
+                '_blackprint_simple_code'
+            )
+            !== $simpleCode
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce variation simple_code ownership verification failed.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parent Child Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $reloadedParent =
+            wc_get_product(
+                $parentId
+            );
+
+        if (
+            ! $reloadedParent
+        ) {
+
+            return ProjectionResult::failed(
+                'Variation was created but the parent could not be reloaded for child verification.'
+            );
+        }
+
+        $children =
+            $reloadedParent->get_children();
+
+        if (
+            ! in_array(
+                $variationId,
+                $children,
+                true
+            )
+        ) {
+
+            return ProjectionResult::failed(
+                'Created variation is not registered beneath the WooCommerce parent.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Creation Result
+        |--------------------------------------------------------------------------
+        */
+
+        return ProjectionResult::created(
+            productId: $variationId,
+            data: [
+                'decision' => 'create_variation',
+                'product_type' => 'variation',
+                'parent_id' => $parentId,
+                'supplier' => $supplier,
+                'simple_code' => $simpleCode,
+                'full_code' => $fullCode,
+                'sku' => $sku,
+                'attributes' => $attributes,
             ]
         );
     }
