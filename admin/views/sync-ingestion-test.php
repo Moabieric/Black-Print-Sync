@@ -549,3 +549,52 @@ Snapshot UUID
         Run WooCommerce Execution Decision Verification
     </button>
 </form>
+
+<hr>
+
+<h2>12.1 — Controlled WooCommerce Parent Creation</h2>
+
+<p>
+    Run a controlled single-product WooCommerce parent creation test
+    against the verified snapshot.
+</p>
+
+<p>
+    This test selects exactly one canonical product, projects it into
+    the WooCommerce channel representation, and permits the executor
+    to create the WooCommerce parent product when no existing
+    BlackPrint-managed parent exists.
+</p>
+
+<p>
+    <strong>
+        Only one WooCommerce parent product may be created by this test.
+        Variations are not created or modified.
+    </strong>
+</p>
+
+<form
+    method="post"
+    action="<?php echo esc_url(
+        admin_url('admin-post.php')
+    ); ?>"
+>
+    <input
+        type="hidden"
+        name="action"
+        value="bp_test_woocommerce_parent_creation"
+    >
+
+    <?php
+    wp_nonce_field(
+        'bp_test_woocommerce_parent_creation'
+    );
+    ?>
+
+    <button
+        type="submit"
+        class="button button-primary"
+    >
+        Run 12.1 Controlled Parent Creation
+    </button>
+</form>
