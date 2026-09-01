@@ -198,7 +198,7 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         */
 
         $existingParent =
-            wc_get_product(
+            \wc_get_product(
                 $productId
             );
 
@@ -623,7 +623,7 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         */
 
         $savedProduct =
-            wc_get_product(
+            \wc_get_product(
                 $productId
             );
 
@@ -836,7 +836,7 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         */
 
         $parent =
-            wc_get_product(
+            \wc_get_product(
                 $parentId
             );
 
@@ -978,7 +978,7 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
 */
 
 $existingSkuProductId =
-    wc_get_product_id_by_sku(
+    \wc_get_product_id_by_sku(
         $sku
     );
 
@@ -988,7 +988,7 @@ if (
 ) {
 
     $existingSkuProduct =
-        wc_get_product(
+        \wc_get_product(
             $existingSkuProductId
         );
 
@@ -1125,7 +1125,7 @@ if (
         */
 
         $savedVariation =
-            wc_get_product(
+            \wc_get_product(
                 $variationId
             );
 
@@ -1223,7 +1223,7 @@ if (
         */
 
         $reloadedParent =
-            wc_get_product(
+            \wc_get_product(
                 $parentId
             );
 
@@ -1329,7 +1329,7 @@ if (
         }
 
         $products =
-            get_posts(
+            \get_posts(
                 [
                     'post_type' =>
                         'product',
