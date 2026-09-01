@@ -962,6 +962,80 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         }
 
         /*
+|--------------------------------------------------------------------------
+| Global WooCommerce SKU Conflict Check
+|--------------------------------------------------------------------------
+|
+| WooCommerce SKUs must be globally unique.
+|
+| The BlackPrint-managed variant check above only verifies whether
+| this canonical variant already exists beneath this parent.
+|
+| This additional check detects an SKU owned by another WooCommerce
+| product so the controlled creation test can report the conflict
+| explicitly instead of exposing WooCommerce's generic exception.
+|
+*/
+
+$existingSkuProductId =
+    wc_get_product_id_by_sku(
+        $sku
+    );
+
+if (
+    is_int($existingSkuProductId)
+    && $existingSkuProductId > 0
+) {
+
+    $existingSkuProduct =
+        wc_get_product(
+            $existingSkuProductId
+        );
+
+    $existingSkuParentId =
+        $existingSkuProduct
+            ? $existingSkuProduct->get_parent_id()
+            : 0;
+
+    $existingSkuType =
+        $existingSkuProduct
+            ? $existingSkuProduct->get_type()
+            : 'unknown';
+
+    $existingSkuManaged =
+        $existingSkuProduct
+            ? $existingSkuProduct->get_meta(
+                '_blackprint_managed'
+            )
+            : '';
+
+    $existingSkuSupplier =
+        $existingSkuProduct
+            ? $existingSkuProduct->get_meta(
+                '_blackprint_supplier'
+            )
+            : '';
+
+    $existingSkuVariantCode =
+        $existingSkuProduct
+            ? $existingSkuProduct->get_meta(
+                '_blackprint_variant_code'
+            )
+            : '';
+
+    return ProjectionResult::failed(
+        'WooCommerce SKU conflict.' .
+        ' SKU="' . $sku . '"' .
+        ' Existing product ID=' . $existingSkuProductId .
+        ' Type=' . $existingSkuType .
+        ' Parent ID=' . $existingSkuParentId .
+        ' BlackPrint managed="' . $existingSkuManaged . '"' .
+        ' Supplier="' . $existingSkuSupplier . '"' .
+        ' Variant code="' . $existingSkuVariantCode . '"'
+    );
+}
+
+        /*
         |--------------------------------------------------------------------------
         | Create Variation
         |--------------------------------------------------------------------------
