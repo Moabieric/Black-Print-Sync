@@ -5442,4 +5442,1392 @@ public function test_woocommerce_projection(): void
         }
     }
 
+```php
+/**
+ * Run the WooCommerce controlled variant creation verification test.
+ *
+ * 12.1.2
+ *
+ * This test intentionally creates exactly one WooCommerce variation.
+ *
+ * It:
+ *
+ * - Requires manage_woocommerce capability.
+ * - Verifies the admin nonce.
+ * - Loads the existing verified snapshot.
+ * - Normalizes the snapshot into canonical products.
+ * - Selects exactly one canonical product.
+ * - Selects exactly one canonical variant.
+ * - Builds one WooCommerce projection.
+ * - Locates the existing BlackPrint-managed parent.
+ * - Verifies that the parent is a variable product.
+ * - Verifies that the selected variation does not already exist.
+ * - Executes the projection.
+ * - Verifies that exactly one variation was created.
+ * - Verifies variation ownership metadata.
+ * - Verifies variation identity.
+ * - Verifies variation SKU.
+ * - Verifies variation attributes.
+ * - Verifies variation parent.
+ *
+ * It does not create a parent.
+ * It does not create additional variations.
+ * It does not process the remaining canonical products or variants.
+ */
+public function test_woocommerce_variant_creation(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to run the WooCommerce variant creation test.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_test_woocommerce_variant_creation'
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Existing Verified Snapshot
+    |--------------------------------------------------------------------------
+    */
+
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normalize Snapshot
+        |--------------------------------------------------------------------------
+        */
+
+        $normalizationResult =
+            bp_commerce()
+                ->normalization()
+                ->normalize(
+                    $snapshotUuid
+                );
+
+        if (
+            ! $normalizationResult->success()
+        ) {
+
+            wp_die(
+                esc_html(
+                    'Normalization failed: ' .
+                    (
+                        $normalizationResult->errors()[0]
+                        ?? 'Unknown normalization error.'
+                    )
+                )
+            );
+        }
+
+        $products =
+            $normalizationResult->products();
+
+        if (
+            $products === null
+            || $products->isEmpty()
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: no canonical products were returned.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Select Exactly One Canonical Product
+        |--------------------------------------------------------------------------
+        */
+
+        $canonicalProduct =
+            $products->get(0);
+
+        if (
+            $canonicalProduct === null
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: first canonical product could not be loaded.'
+            );
+        }
+
+        $canonical =
+            $canonicalProduct->toArray();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Projection Components
+        |--------------------------------------------------------------------------
+        */
+
+        $projector =
+            new \BlackPrint\Commerce\Projection\WooCommerce\WooCommerceProductProjector();
+
+        $executor =
+            new \BlackPrint\Commerce\Projection\WooCommerce\WooCommerceProjectionExecutor();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Build Projection
+        |--------------------------------------------------------------------------
+        */
+
+        $projectionResult =
+            $projector->project(
+                $canonical
+            );
+
+        if (
+            ! $projectionResult->success()
+        ) {
+
+            wp_die(
+                esc_html(
+                    'Projection failed: ' .
+                    (
+                        $projectionResult->message()
+                        ?? 'Unknown projection error.'
+                    )
+                )
+            );
+        }
+
+        $projection =
+            $projectionResult->data();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Projection Parent
+        |--------------------------------------------------------------------------
+        */
+
+        $parent =
+            $projection['parent']
+            ?? [];
+
+        if (
+            ! is_array($parent)
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: projection parent is invalid.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Projection Variants
+        |--------------------------------------------------------------------------
+        */
+
+        $variants =
+            $projection['variants']
+            ?? [];
+
+        if (
+            ! is_array($variants)
+            || $variants === []
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: projection contains no variants.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Select Exactly One Canonical Variant
+        |--------------------------------------------------------------------------
+        */
+
+        $variant =
+            $variants[0]
+            ?? null;
+
+        if (
+            ! is_array($variant)
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: first projected variant is invalid.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Capture Parent Identity
+        |--------------------------------------------------------------------------
+        */
+
+        $parentIdentity =
+            $parent['identity']
+            ?? [];
+
+        if (
+            ! is_array($parentIdentity)
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: parent identity is invalid.'
+            );
+        }
+
+        $expectedSupplier =
+            $parentIdentity['supplier']
+            ?? null;
+
+        $expectedProductId =
+            $parentIdentity['supplier_product_id']
+            ?? null;
+
+        $expectedProductCode =
+            $parentIdentity['supplier_product_code']
+            ?? null;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Capture Variant Identity
+        |--------------------------------------------------------------------------
+        */
+
+        $variantIdentity =
+            $variant['identity']
+            ?? [];
+
+        if (
+            ! is_array($variantIdentity)
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: variant identity is invalid.'
+            );
+        }
+
+        $expectedVariantSupplier =
+            $variantIdentity['supplier']
+            ?? null;
+
+        $expectedSimpleCode =
+            $variantIdentity['simple_code']
+            ?? null;
+
+        $expectedFullCode =
+            $variantIdentity['full_code']
+            ?? null;
+
+        $expectedSku =
+            $variant['sku']
+            ?? null;
+
+        $expectedAttributes =
+            $variant['attributes']
+            ?? [];
+
+        if (
+            ! is_array($expectedAttributes)
+        ) {
+
+            $expectedAttributes = [];
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parent Identity Validation
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            ! is_string($expectedSupplier)
+            || $expectedSupplier === ''
+            || ! is_string($expectedProductId)
+            || $expectedProductId === ''
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: canonical parent identity is incomplete.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Variant Identity Validation
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            ! is_string($expectedVariantSupplier)
+            || $expectedVariantSupplier === ''
+            || ! is_string($expectedSimpleCode)
+            || $expectedSimpleCode === ''
+            || ! is_string($expectedFullCode)
+            || $expectedFullCode === ''
+            || ! is_string($expectedSku)
+            || $expectedSku === ''
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: canonical variant identity is incomplete.'
+            );
+        }
+
+        if (
+            $expectedVariantSupplier
+            !== $expectedSupplier
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: variant supplier does not match parent supplier.'
+            );
+        }
+
+        if (
+            $expectedSku
+            !== $expectedFullCode
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: variant SKU does not match full_code.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Locate Existing BlackPrint-Managed Parent
+        |--------------------------------------------------------------------------
+        |
+        | 12.1.2 must never create a parent.
+        |
+        | The parent must already exist and must be explicitly owned by
+        | BlackPrint.
+        |
+        */
+
+        $existingParents =
+            get_posts(
+                [
+                    'post_type' =>
+                        'product',
+
+                    'post_status' =>
+                        'any',
+
+                    'posts_per_page' =>
+                        2,
+
+                    'fields' =>
+                        'ids',
+
+                    'meta_query' =>
+                        [
+                            'relation' =>
+                                'AND',
+
+                            [
+                                'key' =>
+                                    '_blackprint_managed',
+
+                                'value' =>
+                                    'yes',
+                            ],
+
+                            [
+                                'key' =>
+                                    '_blackprint_supplier',
+
+                                'value' =>
+                                    $expectedSupplier,
+                            ],
+
+                            [
+                                'key' =>
+                                    '_blackprint_product_id',
+
+                                'value' =>
+                                    $expectedProductId,
+                            ],
+                        ],
+                ]
+            );
+
+        if (
+            ! is_array($existingParents)
+            || $existingParents === []
+        ) {
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        [
+                            '12.1.2 CONTROLLED VARIANT CREATION',
+                            str_repeat(
+                                '=',
+                                64
+                            ),
+                            '',
+                            'TEST ABORTED — REQUIRED PARENT DOES NOT EXIST.',
+                            '',
+                            'Supplier: ' .
+                                $expectedSupplier,
+                            'Supplier product ID: ' .
+                                $expectedProductId,
+                            'Supplier product code: ' .
+                                $expectedProductCode,
+                            '',
+                            '12.1.2 does not create the parent.',
+                            'Run 12.1.1 first to establish the controlled parent.',
+                            '',
+                            'FINAL STATUS: ABORTED',
+                        ]
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        if (
+            count($existingParents) > 1
+        ) {
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        [
+                            '12.1.2 CONTROLLED VARIANT CREATION',
+                            str_repeat(
+                                '=',
+                                64
+                            ),
+                            '',
+                            'TEST ABORTED — MULTIPLE PARENTS EXIST.',
+                            '',
+                            'Supplier: ' .
+                                $expectedSupplier,
+                            'Supplier product ID: ' .
+                                $expectedProductId,
+                            'Existing WooCommerce ID(s): ' .
+                                wp_json_encode(
+                                    $existingParents
+                                ),
+                            '',
+                            'BlackPrint requires a unique managed parent identity.',
+                            '',
+                            'FINAL STATUS: ABORTED',
+                        ]
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        $parentId =
+            $existingParents[0];
+
+        if (
+            ! is_numeric($parentId)
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: existing parent returned an invalid WooCommerce ID.'
+            );
+        }
+
+        $parentId =
+            (int) $parentId;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Reload Parent
+        |--------------------------------------------------------------------------
+        */
+
+        $existingParent =
+            wc_get_product(
+                $parentId
+            );
+
+        if (
+            ! $existingParent
+        ) {
+
+            wp_die(
+                'Variant creation test aborted: existing parent could not be reloaded.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parent Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $parentFailures = [];
+
+        if (
+            $existingParent->get_type()
+            !== 'variable'
+        ) {
+
+            $parentFailures[] =
+                'Existing parent is not a variable product.';
+        }
+
+        if (
+            $existingParent->get_meta(
+                '_blackprint_managed'
+            )
+            !== 'yes'
+        ) {
+
+            $parentFailures[] =
+                'Existing parent is not BlackPrint-managed.';
+        }
+
+        if (
+            $existingParent->get_meta(
+                '_blackprint_supplier'
+            )
+            !== $expectedSupplier
+        ) {
+
+            $parentFailures[] =
+                'Existing parent supplier metadata does not match.';
+        }
+
+        if (
+            $existingParent->get_meta(
+                '_blackprint_product_id'
+            )
+            !== $expectedProductId
+        ) {
+
+            $parentFailures[] =
+                'Existing parent product identity metadata does not match.';
+        }
+
+        if (
+            $existingParent->get_meta(
+                '_blackprint_product_code'
+            )
+            !== $expectedProductCode
+        ) {
+
+            $parentFailures[] =
+                'Existing parent product code metadata does not match.';
+        }
+
+        if (
+            $parentFailures !== []
+        ) {
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        [
+                            '12.1.2 CONTROLLED VARIANT CREATION',
+                            str_repeat(
+                                '=',
+                                64
+                            ),
+                            '',
+                            'TEST ABORTED — PARENT VERIFICATION FAILED.',
+                            '',
+                            'Parent WooCommerce ID: ' .
+                                $parentId,
+                            '',
+                            'FAILURES:',
+                            ...$parentFailures,
+                            '',
+                            'FINAL STATUS: ABORTED',
+                        ]
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Capture Existing Variation State
+        |--------------------------------------------------------------------------
+        */
+
+        $beforeVariationIds =
+            $existingParent->get_children();
+
+        if (
+            ! is_array($beforeVariationIds)
+        ) {
+
+            $beforeVariationIds = [];
+        }
+
+        $beforeVariationCount =
+            count($beforeVariationIds);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Duplicate Variant Safety
+        |--------------------------------------------------------------------------
+        |
+        | Never intentionally create the same controlled variation twice.
+        |
+        */
+
+        $existingVariantIds =
+            get_posts(
+                [
+                    'post_type' =>
+                        'product_variation',
+
+                    'post_status' =>
+                        'any',
+
+                    'posts_per_page' =>
+                        2,
+
+                    'fields' =>
+                        'ids',
+
+                    'post_parent' =>
+                        $parentId,
+
+                    'meta_query' =>
+                        [
+                            'relation' =>
+                                'AND',
+
+                            [
+                                'key' =>
+                                    '_blackprint_managed',
+
+                                'value' =>
+                                    'yes',
+                            ],
+
+                            [
+                                'key' =>
+                                    '_blackprint_supplier',
+
+                                'value' =>
+                                    $expectedSupplier,
+                            ],
+
+                            [
+                                'key' =>
+                                    '_blackprint_variant_code',
+
+                                'value' =>
+                                    $expectedFullCode,
+                            ],
+                        ],
+                ]
+            );
+
+        if (
+            is_array($existingVariantIds)
+            && $existingVariantIds !== []
+        ) {
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        [
+                            '12.1.2 CONTROLLED VARIANT CREATION',
+                            str_repeat(
+                                '=',
+                                64
+                            ),
+                            '',
+                            'TEST ABORTED — SELECTED VARIANT ALREADY EXISTS.',
+                            '',
+                            'Parent WooCommerce ID: ' .
+                                $parentId,
+                            'Supplier: ' .
+                                $expectedSupplier,
+                            'Simple code: ' .
+                                $expectedSimpleCode,
+                            'Full code: ' .
+                                $expectedFullCode,
+                            'SKU: ' .
+                                $expectedSku,
+                            'Existing variation ID(s): ' .
+                                wp_json_encode(
+                                    $existingVariantIds
+                                ),
+                            '',
+                            'No WooCommerce variation was created.',
+                            '',
+                            'FINAL STATUS: ABORTED',
+                        ]
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Execute Controlled Variant Creation
+        |--------------------------------------------------------------------------
+        */
+
+        $executionResult =
+            $executor->execute(
+                $projection
+            );
+
+        if (
+            ! $executionResult->success()
+        ) {
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        [
+                            '12.1.2 CONTROLLED VARIANT CREATION',
+                            str_repeat(
+                                '=',
+                                64
+                            ),
+                            '',
+                            'EXECUTION FAILED',
+                            '',
+                            'Parent WooCommerce ID: ' .
+                                $parentId,
+                            'Variant full code: ' .
+                                $expectedFullCode,
+                            '',
+                            'Message: ' .
+                                (
+                                    $executionResult->message()
+                                    ?? 'Unknown execution error.'
+                                ),
+                            '',
+                            'FINAL STATUS: FAILED',
+                        ]
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Verify Result Action
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $executionResult->action()
+            !== 'created'
+        ) {
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        [
+                            '12.1.2 CONTROLLED VARIANT CREATION',
+                            str_repeat(
+                                '=',
+                                64
+                            ),
+                            '',
+                            'EXECUTION DID NOT CREATE A VARIATION.',
+                            '',
+                            'Returned action: ' .
+                                $executionResult->action(),
+                            'Message: ' .
+                                (
+                                    $executionResult->message()
+                                    ?? 'None'
+                                ),
+                            '',
+                            'FINAL STATUS: FAILED',
+                        ]
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Created Variation ID
+        |--------------------------------------------------------------------------
+        */
+
+        $createdVariationId =
+            $executionResult->productId();
+
+        if (
+            $createdVariationId === null
+            || $createdVariationId <= 0
+        ) {
+
+            wp_die(
+                'Variant creation test failed: executor returned an invalid variation ID.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Reload Created Variation
+        |--------------------------------------------------------------------------
+        */
+
+        $createdVariation =
+            wc_get_product(
+                $createdVariationId
+            );
+
+        if (
+            ! $createdVariation
+        ) {
+
+            wp_die(
+                'Variant creation test failed: created WooCommerce variation could not be reloaded.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $failures = [];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Variation Type
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $createdVariation->get_type()
+            !== 'variation'
+        ) {
+
+            $failures[] =
+                'Created product is not a WooCommerce variation.';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parent Verification
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $createdVariation->get_parent_id()
+            !== $parentId
+        ) {
+
+            $failures[] =
+                'Created variation parent does not match the controlled parent.';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | SKU Verification
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $createdVariation->get_sku()
+            !== $expectedSku
+        ) {
+
+            $failures[] =
+                'Variation SKU does not match the canonical SKU.';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ownership Metadata
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $createdVariation->get_meta(
+                '_blackprint_managed'
+            )
+            !== 'yes'
+        ) {
+
+            $failures[] =
+                '_blackprint_managed is not yes.';
+        }
+
+        if (
+            $createdVariation->get_meta(
+                '_blackprint_supplier'
+            )
+            !== $expectedSupplier
+        ) {
+
+            $failures[] =
+                '_blackprint_supplier does not match.';
+        }
+
+        if (
+            $createdVariation->get_meta(
+                '_blackprint_variant_code'
+            )
+            !== $expectedFullCode
+        ) {
+
+            $failures[] =
+                '_blackprint_variant_code does not match full_code.';
+        }
+
+        if (
+            $createdVariation->get_meta(
+                '_blackprint_simple_code'
+            )
+            !== $expectedSimpleCode
+        ) {
+
+            $failures[] =
+                '_blackprint_simple_code does not match simple_code.';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Attribute Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $actualAttributes =
+            $createdVariation->get_attributes();
+
+        if (
+            $actualAttributes !== $expectedAttributes
+        ) {
+
+            $failures[] =
+                'Variation attributes do not match the projection.';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Parent Child Verification
+        |--------------------------------------------------------------------------
+        */
+
+        $afterVariationIds =
+            $existingParent->get_children();
+
+        if (
+            ! is_array($afterVariationIds)
+        ) {
+
+            $afterVariationIds = [];
+        }
+
+        $afterVariationCount =
+            count($afterVariationIds);
+
+        if (
+            $afterVariationCount
+            !== $beforeVariationCount + 1
+        ) {
+
+            $failures[] =
+                'Parent variation count did not increase by exactly one.';
+        }
+
+        if (
+            ! in_array(
+                $createdVariationId,
+                $afterVariationIds,
+                true
+            )
+        ) {
+
+            $failures[] =
+                'Created variation is not attached to the parent.';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Final Status
+        |--------------------------------------------------------------------------
+        */
+
+        $status =
+            $failures === []
+                ? 'PASS'
+                : 'FAILED';
+
+        /*
+        |--------------------------------------------------------------------------
+        | Report
+        |--------------------------------------------------------------------------
+        */
+
+        $output = [];
+
+        $output[] =
+            'TEST VERSION: WOOCOMMERCE CONTROLLED VARIANT CREATION v1';
+
+        $output[] = '';
+
+        $output[] =
+            'BlackPrint OS — 12.1.2 Controlled Variant Creation';
+
+        $output[] =
+            str_repeat(
+                '=',
+                64
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'SNAPSHOT';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            'UUID: ' .
+            $snapshotUuid;
+
+        $output[] = '';
+
+        $output[] =
+            'CONTROLLED PARENT';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            'WooCommerce parent ID: ' .
+            $parentId;
+
+        $output[] =
+            'Product type:          ' .
+            $existingParent->get_type();
+
+        $output[] =
+            'Supplier:              ' .
+            $expectedSupplier;
+
+        $output[] =
+            'Supplier product ID:   ' .
+            $expectedProductId;
+
+        $output[] =
+            'Supplier product code: ' .
+            $expectedProductCode;
+
+        $output[] = '';
+
+        $output[] =
+            'CANONICAL VARIANT';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            'Supplier:              ' .
+            $expectedVariantSupplier;
+
+        $output[] =
+            'Simple code:           ' .
+            $expectedSimpleCode;
+
+        $output[] =
+            'Full code:             ' .
+            $expectedFullCode;
+
+        $output[] =
+            'SKU:                   ' .
+            $expectedSku;
+
+        $output[] =
+            'Attributes:            ' .
+            wp_json_encode(
+                $expectedAttributes
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'WOOCOMMERCE CREATION';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            'Created variation ID:  ' .
+            $createdVariationId;
+
+        $output[] =
+            'Variation type:        ' .
+            $createdVariation->get_type();
+
+        $output[] =
+            'Parent ID verified:    ' .
+            (
+                $createdVariation->get_parent_id()
+                === $parentId
+                    ? 'YES'
+                    : 'NO'
+            );
+
+        $output[] =
+            'SKU verified:          ' .
+            (
+                $createdVariation->get_sku()
+                === $expectedSku
+                    ? 'YES'
+                    : 'NO'
+            );
+
+        $output[] =
+            'Attributes verified:   ' .
+            (
+                $createdVariation->get_attributes()
+                === $expectedAttributes
+                    ? 'YES'
+                    : 'NO'
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'BLACKPRINT OWNERSHIP';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            '_blackprint_managed:      ' .
+            $createdVariation->get_meta(
+                '_blackprint_managed'
+            );
+
+        $output[] =
+            '_blackprint_supplier:     ' .
+            $createdVariation->get_meta(
+                '_blackprint_supplier'
+            );
+
+        $output[] =
+            '_blackprint_variant_code: ' .
+            $createdVariation->get_meta(
+                '_blackprint_variant_code'
+            );
+
+        $output[] =
+            '_blackprint_simple_code:  ' .
+            $createdVariation->get_meta(
+                '_blackprint_simple_code'
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'PARENT VARIATION COUNT';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            'Before creation:      ' .
+            $beforeVariationCount;
+
+        $output[] =
+            'After creation:       ' .
+            $afterVariationCount;
+
+        $output[] =
+            'Increase by exactly 1: ' .
+            (
+                $afterVariationCount
+                === $beforeVariationCount + 1
+                    ? 'YES'
+                    : 'NO'
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'VERIFICATION';
+
+        $output[] =
+            str_repeat(
+                '-',
+                64
+            );
+
+        $output[] =
+            'Variation type:       ' .
+            (
+                $createdVariation->get_type()
+                === 'variation'
+                    ? 'PASS'
+                    : 'FAIL'
+            );
+
+        $output[] =
+            'Parent relationship:  ' .
+            (
+                $createdVariation->get_parent_id()
+                === $parentId
+                    ? 'PASS'
+                    : 'FAIL'
+            );
+
+        $output[] =
+            'SKU:                  ' .
+            (
+                $createdVariation->get_sku()
+                === $expectedSku
+                    ? 'PASS'
+                    : 'FAIL'
+            );
+
+        $output[] =
+            'Ownership metadata:   ' .
+            (
+                $createdVariation->get_meta(
+                    '_blackprint_managed'
+                )
+                === 'yes'
+                    ? 'PASS'
+                    : 'FAIL'
+            );
+
+        $output[] =
+            'Variant identity:     ' .
+            (
+                $createdVariation->get_meta(
+                    '_blackprint_variant_code'
+                )
+                === $expectedFullCode
+                    ? 'PASS'
+                    : 'FAIL'
+            );
+
+        $output[] =
+            'Attributes:           ' .
+            (
+                $createdVariation->get_attributes()
+                === $expectedAttributes
+                    ? 'PASS'
+                    : 'FAIL'
+            );
+
+        $output[] = '';
+
+        if (
+            $failures !== []
+        ) {
+
+            $output[] =
+                'FAILURES';
+
+            $output[] =
+                str_repeat(
+                    '-',
+                    64
+                );
+
+            foreach (
+                $failures as $failure
+            ) {
+
+                $output[] =
+                    '• ' .
+                    $failure;
+            }
+
+            $output[] = '';
+        }
+
+        $output[] =
+            'FINAL STATUS: ' .
+            $status;
+
+        wp_die(
+            '<pre>' .
+            esc_html(
+                implode(
+                    "\n",
+                    $output
+                )
+            ) .
+            '</pre>'
+        );
+
+    } catch (
+        \Throwable $exception
+    ) {
+
+        wp_die(
+            '<pre>' .
+            esc_html(
+                implode(
+                    "\n",
+                    [
+                        '12.1.2 CONTROLLED VARIANT CREATION',
+                        str_repeat(
+                            '=',
+                            64
+                        ),
+                        '',
+                        'UNEXPECTED TEST EXCEPTION',
+                        '',
+                        'Message: ' .
+                            $exception->getMessage(),
+                        '',
+                        'FINAL STATUS: FAILED',
+                    ]
+                )
+            ) .
+            '</pre>'
+        );
+    }
 }

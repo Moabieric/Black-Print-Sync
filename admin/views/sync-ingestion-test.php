@@ -552,24 +552,37 @@ Snapshot UUID
 
 <hr>
 
-<h2>12.1 — Controlled WooCommerce Parent Creation</h2>
+
+<hr>
+
+<h2>12.1.2 — Controlled WooCommerce Variant Creation</h2>
 
 <p>
-    Run a controlled single-product WooCommerce parent creation test
-    against the verified snapshot.
+    Run a controlled single-variant WooCommerce creation test
+    against the verified snapshot and an existing BlackPrint-managed
+    WooCommerce parent.
 </p>
 
 <p>
     This test selects exactly one canonical product, projects it into
-    the WooCommerce channel representation, and permits the executor
-    to create the WooCommerce parent product when no existing
-    BlackPrint-managed parent exists.
+    the WooCommerce channel representation, locates the existing
+    BlackPrint-managed parent, and permits the executor to create
+    exactly one WooCommerce variation beneath that parent.
 </p>
 
 <p>
     <strong>
-        Only one WooCommerce parent product may be created by this test.
-        Variations are not created or modified.
+        The parent product must already exist and must be
+        BlackPrint-managed. This test does not create or modify
+        the parent product.
+    </strong>
+</p>
+
+<p>
+    <strong>
+        Only one WooCommerce variation may be created by this test.
+        Pricing, stock, images, branding, categories, and relationships
+        are not created or modified.
     </strong>
 </p>
 
@@ -582,12 +595,12 @@ Snapshot UUID
     <input
         type="hidden"
         name="action"
-        value="bp_test_woocommerce_parent_creation"
+        value="bp_test_woocommerce_variant_creation"
     >
 
     <?php
     wp_nonce_field(
-        'bp_test_woocommerce_parent_creation'
+        'bp_test_woocommerce_variant_creation'
     );
     ?>
 
@@ -595,6 +608,6 @@ Snapshot UUID
         type="submit"
         class="button button-primary"
     >
-        Run 12.1 Controlled Parent Creation
+        Run 12.1.2 Controlled Variant Creation
     </button>
 </form>

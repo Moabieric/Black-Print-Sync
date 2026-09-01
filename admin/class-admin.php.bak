@@ -5442,4 +5442,34 @@ public function test_woocommerce_projection(): void
         }
     }
 
-}
+/**
+ * Run the WooCommerce controlled variant creation verification test.
+ *
+ * 12.1.2
+ *
+ * This test intentionally creates exactly one WooCommerce variation.
+ *
+ * It:
+ *
+ * - Requires manage_woocommerce capability.
+ * - Verifies the admin nonce.
+ * - Loads the existing verified snapshot.
+ * - Normalizes the snapshot into canonical products.
+ * - Selects exactly one canonical product.
+ * - Selects exactly one canonical variant.
+ * - Builds one WooCommerce projection.
+ * - Locates the existing BlackPrint-managed parent.
+ * - Verifies that the parent is a variable product.
+ * - Verifies that the selected variation does not already exist.
+ * - Executes the projection.
+ * - Verifies that exactly one variation was created.
+ * - Verifies variation ownership metadata.
+ * - Verifies variation identity.
+ * - Verifies variation SKU.
+ * - Verifies variation attributes.
+ * - Verifies variation parent.
+ *
+ * It does not create a parent.
+ * It does not create additional variations.
+ * It does not process the remaining canonical products or variants.
+ */
