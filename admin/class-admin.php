@@ -62,13 +62,6 @@ final class Admin
             ]
         );
 
-        add_action(
-            'admin_post_bp_test_woocommerce_execution_decisions',
-            [
-                $this,
-                'test_woocommerce_execution_decisions',
-            ]
-        );
 
         add_action(
             'admin_post_bp_test_woocommerce_variant_creation',
