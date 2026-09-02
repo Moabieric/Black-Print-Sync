@@ -3407,6 +3407,611 @@ foreach (
 echo '</pre>';
 
 
+/*
+|--------------------------------------------------------------------------
+| Step 3 — Adoption Mapping Analysis
+|--------------------------------------------------------------------------
+|
+| Read-only.
+|
+| Converts approved adoption candidates into explicit mappings:
+|
+| WooCommerce Product
+|     -> Canonical Product
+|         -> Canonical Variant(s)
+|
+| No WooCommerce writes are performed here.
+|
+*/
+
+echo '<h2>ADOPTION MAPPING ANALYSIS</h2>';
+
+$adoptionMappings = [];
+$adoptionMappingErrors = [];
+$adoptionMappingWarnings = [];
+
+$mappedCanonicalProducts = [];
+$mappedCanonicalVariants = [];
+
+foreach ($adoptionCandidates as $productId => $candidate) {
+
+    if (
+        !isset($candidate['decision'])
+        || $candidate['decision'] !== 'ADOPT'
+    ) {
+        continue;
+    }
+
+    $product = wc_get_product($productId);
+
+    if (!$product) {
+        $adoptionMappingErrors[$productId] = [
+            'product_id' => $productId,
+            'reason'     => 'WooCommerce product could not be loaded.',
+        ];
+
+        continue;
+    }
+
+    $classification = $candidate['classification'] ?? '';
+
+    /*
+     * ------------------------------------------------------------------
+     * Direct canonical target
+     * ------------------------------------------------------------------
+     */
+
+    $canonical = $candidate['canonical'] ?? null;
+
+    if (
+        !is_array($canonical)
+        || empty($canonical['supplier_product_id'])
+        || empty($canonical['supplier_product_code'])
+    ) {
+        $adoptionMappingErrors[$productId] = [
+            'product_id'     => $productId,
+            'sku'            => $product->get_sku(),
+            'classification' => $classification,
+            'reason'         => 'Approved adoption candidate has no complete canonical product identity.',
+        ];
+
+        continue;
+    }
+
+    $canonicalProductId   = (string) $canonical['supplier_product_id'];
+    $canonicalProductCode = (string) $canonical['supplier_product_code'];
+
+    /*
+     * Prevent multiple WooCommerce products from silently claiming
+     * the same canonical product during adoption.
+     */
+    if (isset($mappedCanonicalProducts[$canonicalProductId])) {
+
+        $existingProductId = $mappedCanonicalProducts[$canonicalProductId];
+
+        $adoptionMappingErrors[$productId] = [
+            'product_id'            => $productId,
+            'sku'                   => $product->get_sku(),
+            'canonical_product_id'  => $canonicalProductId,
+            'canonical_product_code'=> $canonicalProductCode,
+            'reason'                => sprintf(
+                'Canonical product is already mapped to WooCommerce product %d.',
+                $existingProductId
+            ),
+        ];
+
+        continue;
+    }
+
+    $mappedCanonicalProducts[$canonicalProductId] = $productId;
+
+    /*
+     * Base mapping record.
+     */
+    $mapping = [
+        'woocommerce_product_id'   => $productId,
+        'woocommerce_type'         => $product->get_type(),
+        'woocommerce_sku'          => $product->get_sku(),
+        'classification'           => $classification,
+        'decision'                 => 'ADOPT',
+        'canonical_product_id'     => $canonicalProductId,
+        'canonical_product_code'   => $canonicalProductCode,
+        'canonical_variant_count'  => (int) (
+            $canonical['variant_count'] ?? 0
+        ),
+        'woocommerce_variant_count'=> 0,
+        'matched_variant_count'    => 0,
+        'variants'                 => [],
+    ];
+
+    /*
+     * ------------------------------------------------------------------
+     * Simple product
+     * ------------------------------------------------------------------
+     */
+
+    if ($product->is_type('simple')) {
+
+        $sku = trim((string) $product->get_sku());
+
+        /*
+         * A direct simple-product adoption based on a canonical
+         * variant fullCode must resolve to that exact canonical variant.
+         */
+        if ($classification === 'DIRECT_VARIANT_MATCH_SIMPLE') {
+
+            if ($sku === '') {
+
+                $adoptionMappingErrors[$productId] = [
+                    'product_id'    => $productId,
+                    'classification'=> $classification,
+                    'reason'        => 'Simple direct-variant adoption has no SKU.',
+                ];
+
+                unset($mappedCanonicalProducts[$canonicalProductId]);
+
+                continue;
+            }
+
+            if (!isset($legacyCanonicalVariantLookup[$sku])) {
+
+                $adoptionMappingErrors[$productId] = [
+                    'product_id'    => $productId,
+                    'sku'           => $sku,
+                    'canonical_product_id' => $canonicalProductId,
+                    'reason'        => 'Approved direct variant SKU does not exist in the canonical variant lookup.',
+                ];
+
+                unset($mappedCanonicalProducts[$canonicalProductId]);
+
+                continue;
+            }
+
+            $variantIdentity = $legacyCanonicalVariantLookup[$sku];
+
+            if (
+                (string) ($variantIdentity['supplier_product_id'] ?? '')
+                !== $canonicalProductId
+            ) {
+
+                $adoptionMappingErrors[$productId] = [
+                    'product_id'    => $productId,
+                    'sku'           => $sku,
+                    'canonical_product_id' => $canonicalProductId,
+                    'reason'        => 'Variant SKU resolves to a different canonical product.',
+                ];
+
+                unset($mappedCanonicalProducts[$canonicalProductId]);
+
+                continue;
+            }
+
+            $mapping['variants'][] = [
+                'woocommerce_variation_id' => null,
+                'woocommerce_sku'          => $sku,
+                'canonical_variant_code'   => $sku,
+            ];
+
+            $mapping['woocommerce_variant_count'] = 1;
+            $mapping['matched_variant_count'] = 1;
+
+            $mappedCanonicalVariants[$sku] = true;
+        }
+
+        /*
+         * Direct product identity simple products are mapped at the
+         * canonical product level. Their SKU is not assumed to be
+         * a canonical variant fullCode.
+         */
+
+        $adoptionMappings[$productId] = $mapping;
+
+        continue;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * Variable product
+     * ------------------------------------------------------------------
+     */
+
+    if ($product->is_type('variable')) {
+
+        $variationIds = $product->get_children();
+
+        $mapping['woocommerce_variant_count'] = count($variationIds);
+
+        foreach ($variationIds as $variationId) {
+
+            $variation = wc_get_product($variationId);
+
+            if (!$variation) {
+
+                $adoptionMappingWarnings[$productId][] = [
+                    'variation_id' => $variationId,
+                    'reason'       => 'WooCommerce variation could not be loaded.',
+                ];
+
+                continue;
+            }
+
+            $variationSku = trim((string) $variation->get_sku());
+
+            if ($variationSku === '') {
+
+                $adoptionMappingWarnings[$productId][] = [
+                    'variation_id' => $variationId,
+                    'reason'       => 'WooCommerce variation has no SKU.',
+                ];
+
+                continue;
+            }
+
+            /*
+             * Exact canonical fullCode lookup.
+             */
+            if (!isset($legacyCanonicalVariantLookup[$variationSku])) {
+
+                $adoptionMappingWarnings[$productId][] = [
+                    'variation_id' => $variationId,
+                    'sku'          => $variationSku,
+                    'reason'       => 'WooCommerce variation SKU has no canonical variant match.',
+                ];
+
+                continue;
+            }
+
+            $variantIdentity = $legacyCanonicalVariantLookup[$variationSku];
+
+            $variantCanonicalProductId =
+                (string) ($variantIdentity['supplier_product_id'] ?? '');
+
+            /*
+             * Child variant must belong to the same canonical product
+             * as the parent mapping.
+             */
+            if ($variantCanonicalProductId !== $canonicalProductId) {
+
+                $adoptionMappingErrors[$productId][] = [
+                    'variation_id'        => $variationId,
+                    'sku'                 => $variationSku,
+                    'canonical_product_id'=> $canonicalProductId,
+                    'resolved_product_id' => $variantCanonicalProductId,
+                    'reason'              => 'WooCommerce variation resolves to a different canonical product than its parent.',
+                ];
+
+                continue;
+            }
+
+            $mapping['variants'][] = [
+                'woocommerce_variation_id' => $variationId,
+                'woocommerce_sku'          => $variationSku,
+                'canonical_variant_code'   => $variationSku,
+            ];
+
+            $mapping['matched_variant_count']++;
+
+            $mappedCanonicalVariants[$variationSku] = true;
+        }
+
+        /*
+         * A variable product is only considered fully mapped when every
+         * WooCommerce variation has an exact canonical variant target.
+         */
+        if (
+            $mapping['woocommerce_variant_count'] > 0
+            && $mapping['matched_variant_count']
+                !== $mapping['woocommerce_variant_count']
+        ) {
+
+            $adoptionMappingWarnings[$productId][] = [
+                'reason' => sprintf(
+                    'Variable product has incomplete child mapping: %d of %d variations mapped.',
+                    $mapping['matched_variant_count'],
+                    $mapping['woocommerce_variant_count']
+                ),
+            ];
+        }
+
+        $adoptionMappings[$productId] = $mapping;
+
+        continue;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * Unsupported product type
+     * ------------------------------------------------------------------
+     */
+
+    $adoptionMappingErrors[$productId] = [
+        'product_id'    => $productId,
+        'classification'=> $classification,
+        'reason'        => 'Approved adoption candidate has an unsupported WooCommerce product type.',
+    ];
+
+    unset($mappedCanonicalProducts[$canonicalProductId]);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mapping summary
+|--------------------------------------------------------------------------
+*/
+
+$directIdentityMappingCount = 0;
+$directVariantMappingCount  = 0;
+$familyMappingCount         = 0;
+
+foreach ($adoptionMappings as $mapping) {
+
+    switch ($mapping['classification']) {
+
+        case 'DIRECT_IDENTITY_MATCH':
+            $directIdentityMappingCount++;
+            break;
+
+        case 'DIRECT_VARIANT_MATCH_SIMPLE':
+            $directVariantMappingCount++;
+            break;
+
+        case 'FAMILY_DETERMINISTIC':
+            $familyMappingCount++;
+            break;
+    }
+}
+
+echo '<pre>';
+
+echo "ADOPTION MAPPING ANALYSIS\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Approved adoption candidates: "
+    . count($adoptionCandidates)
+    . "\n";
+
+echo "Explicit WooCommerce → canonical mappings: "
+    . count($adoptionMappings)
+    . "\n";
+
+echo "\n";
+
+echo "DIRECT IDENTITY MAPPINGS\n";
+echo str_repeat('-', 58) . "\n";
+echo "Mappings: "
+    . $directIdentityMappingCount
+    . "\n";
+
+echo "\n";
+
+echo "DIRECT SIMPLE VARIANT MAPPINGS\n";
+echo str_repeat('-', 58) . "\n";
+echo "Mappings: "
+    . $directVariantMappingCount
+    . "\n";
+
+echo "\n";
+
+echo "DETERMINISTIC FAMILY MAPPINGS\n";
+echo str_repeat('-', 58) . "\n";
+echo "Mappings: "
+    . $familyMappingCount
+    . "\n";
+
+echo "\n";
+
+echo "MAPPED CANONICAL PRODUCTS\n";
+echo str_repeat('-', 58) . "\n";
+echo count($mappedCanonicalProducts) . "\n";
+
+echo "\n";
+
+echo "MAPPED CANONICAL VARIANTS\n";
+echo str_repeat('-', 58) . "\n";
+echo count($mappedCanonicalVariants) . "\n";
+
+echo "\n";
+
+echo "MAPPING ERRORS\n";
+echo str_repeat('-', 58) . "\n";
+echo count($adoptionMappingErrors) . "\n";
+
+echo "\n";
+
+echo "MAPPING WARNINGS\n";
+echo str_repeat('-', 58) . "\n";
+echo count($adoptionMappingWarnings) . "\n";
+
+/*
+|--------------------------------------------------------------------------
+| Mapping error detail
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($adoptionMappingErrors)) {
+
+    echo "\n";
+    echo "MAPPING ERROR DETAILS\n";
+    echo str_repeat('-', 58) . "\n";
+
+    foreach ($adoptionMappingErrors as $productId => $error) {
+
+        echo "WC Product ID: " . $productId . "\n";
+
+        if (isset($error['sku'])) {
+            echo "SKU: " . $error['sku'] . "\n";
+        }
+
+        if (isset($error['reason'])) {
+            echo "Reason: " . $error['reason'] . "\n";
+        }
+
+        if (isset($error['canonical_product_id'])) {
+            echo "Canonical Product ID: "
+                . $error['canonical_product_id']
+                . "\n";
+        }
+
+        if (isset($error['canonical_product_code'])) {
+            echo "Canonical Product Code: "
+                . $error['canonical_product_code']
+                . "\n";
+        }
+
+        /*
+         * Errors may also be an array of child-level errors.
+         */
+        if (is_array($error) && array_is_list($error)) {
+
+            foreach ($error as $childError) {
+
+                if (!is_array($childError)) {
+                    continue;
+                }
+
+                echo "  Variation ID: "
+                    . ($childError['variation_id'] ?? 'n/a')
+                    . "\n";
+
+                echo "  SKU: "
+                    . ($childError['sku'] ?? 'n/a')
+                    . "\n";
+
+                echo "  Reason: "
+                    . ($childError['reason'] ?? 'n/a')
+                    . "\n";
+            }
+        }
+
+        echo "\n";
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mapping warning detail
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($adoptionMappingWarnings)) {
+
+    echo "\n";
+    echo "MAPPING WARNING DETAILS\n";
+    echo str_repeat('-', 58) . "\n";
+
+    foreach ($adoptionMappingWarnings as $productId => $warnings) {
+
+        echo "WC Product ID: " . $productId . "\n";
+
+        foreach ($warnings as $warning) {
+
+            if (!is_array($warning)) {
+                continue;
+            }
+
+            echo "  Variation ID: "
+                . ($warning['variation_id'] ?? 'n/a')
+                . "\n";
+
+            echo "  SKU: "
+                . ($warning['sku'] ?? 'n/a')
+                . "\n";
+
+            echo "  Reason: "
+                . ($warning['reason'] ?? 'n/a')
+                . "\n";
+        }
+
+        echo "\n";
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mapping samples
+|--------------------------------------------------------------------------
+*/
+
+echo "\n";
+echo "MAPPING SAMPLES\n";
+echo str_repeat('-', 58) . "\n";
+
+$mappingSampleCount = 0;
+
+foreach ($adoptionMappings as $mapping) {
+
+    if ($mappingSampleCount >= 10) {
+        break;
+    }
+
+    echo "\n";
+
+    echo "WC Product ID: "
+        . $mapping['woocommerce_product_id']
+        . "\n";
+
+    echo "WC Type: "
+        . $mapping['woocommerce_type']
+        . "\n";
+
+    echo "WC SKU: "
+        . ($mapping['woocommerce_sku'] !== ''
+            ? $mapping['woocommerce_sku']
+            : 'NONE')
+        . "\n";
+
+    echo "Classification: "
+        . $mapping['classification']
+        . "\n";
+
+    echo "Canonical Product ID: "
+        . $mapping['canonical_product_id']
+        . "\n";
+
+    echo "Canonical Product Code: "
+        . $mapping['canonical_product_code']
+        . "\n";
+
+    echo "Canonical Variant Count: "
+        . $mapping['canonical_variant_count']
+        . "\n";
+
+    echo "WooCommerce Variant Count: "
+        . $mapping['woocommerce_variant_count']
+        . "\n";
+
+    echo "Matched Variant Count: "
+        . $mapping['matched_variant_count']
+        . "\n";
+
+    if (!empty($mapping['variants'])) {
+
+        echo "Variant Mappings:\n";
+
+        foreach (array_slice($mapping['variants'], 0, 10) as $variant) {
+
+            echo "  ";
+
+            if ($variant['woocommerce_variation_id'] !== null) {
+
+                echo "WC Variation "
+                    . $variant['woocommerce_variation_id']
+                    . " → ";
+            }
+
+            echo $variant['woocommerce_sku']
+                . " → Canonical "
+                . $variant['canonical_variant_code']
+                . "\n";
+        }
+    }
+
+    $mappingSampleCount++;
+}
+
+echo '</pre>';
+
+
         /*
 |--------------------------------------------------------------------------
 | WooCommerce Variant SKU Reconciliation
