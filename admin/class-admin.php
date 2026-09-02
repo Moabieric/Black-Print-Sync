@@ -3835,14 +3835,12 @@ foreach ($adoptionCandidates as $productId => $candidate) {
             }
 
             $mapping['variants'][] = [
-                'woocommerce_variation_id' => $variationId,
-                'woocommerce_sku'          => $variationSku,
-                'canonical_variant_code'   => (
-                    string
-                ) (
-                    $variantIdentity['full_code'] ?? $variationSku
-                ),
-            ];
+    'woocommerce_variation_id' => $variationId,
+    'woocommerce_sku'          => $variationSku,
+    'canonical_variant_code'   => (string) (
+        $variantIdentity['full_code'] ?? $variationSku
+    ),
+];
 
             $mapping['matched_variant_count']++;
 
