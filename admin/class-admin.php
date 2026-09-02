@@ -2008,6 +2008,524 @@ if (
             }
         }
 
+/*
+|--------------------------------------------------------------------------
+| Legacy WooCommerce Product Family Reconciliation
+|--------------------------------------------------------------------------
+|
+| Read-only analysis of unmatched legacy WooCommerce products.
+|
+| This determines whether unmatched WooCommerce products can still be
+| associated with a canonical BlackPrint product through their child
+| variation fullCodes.
+|
+| This does NOT:
+| - write ownership metadata
+| - modify products
+| - modify SKUs
+| - modify images
+| - create products
+| - update products
+|
+*/
+
+$legacyFamilyDeterministicMatches = [];
+$legacyFamilyCandidateMatches     = [];
+$legacyFamilyNoCanonicalEvidence  = [];
+
+$legacyFamilyStats = [
+    'unmatched_products'                 => 0,
+    'unmatched_variable_parents'         => 0,
+    'unmatched_simple_products'          => 0,
+    'variable_with_matched_variants'     => 0,
+    'variable_with_no_matched_variants'  => 0,
+    'simple_with_variant_match'          => 0,
+    'canonical_families_with_evidence'   => 0,
+];
+
+/*
+|--------------------------------------------------------------------------
+| Analyse every unmatched WooCommerce product.
+|--------------------------------------------------------------------------
+*/
+
+foreach ($legacyUnmatchedProducts as $wooProductId => $wooProduct) {
+    $legacyFamilyStats['unmatched_products']++;
+
+    $productType = $wooProduct['product_type'];
+    $parentSku   = $wooProduct['sku'];
+
+    if ($productType === 'variable') {
+        $legacyFamilyStats['unmatched_variable_parents']++;
+    } elseif ($productType === 'simple') {
+        $legacyFamilyStats['unmatched_simple_products']++;
+    }
+
+    /*
+     * Simple products do not have child variations.
+     *
+     * A simple product can still be related to a canonical variant if
+     * its own SKU is a canonical fullCode. That possibility was already
+     * checked by the product reconciliation above. Since this product
+     * reached the unmatched set, there is no direct canonical evidence.
+     */
+    if ($productType !== 'variable') {
+        $legacyFamilyNoCanonicalEvidence[$wooProductId] = [
+            ...$wooProduct,
+            'evidence_type' => 'no_child_variations',
+            'canonical_candidates' => [],
+        ];
+
+        continue;
+    }
+
+    /*
+     * Find published WooCommerce child variations.
+     */
+    $variationIds = get_posts([
+        'post_type'      => 'product_variation',
+        'post_status'    => 'publish',
+        'post_parent'    => (int) $wooProductId,
+        'posts_per_page' => -1,
+        'fields'         => 'ids',
+    ]);
+
+    $variationEvidence = [];
+    $canonicalFamilies = [];
+
+    foreach ($variationIds as $variationId) {
+        $variationId = (int) $variationId;
+
+        $variationSku = get_post_meta(
+            $variationId,
+            '_sku',
+            true
+        );
+
+        if (!is_string($variationSku)) {
+            continue;
+        }
+
+        $variationSku = trim($variationSku);
+
+        if ($variationSku === '') {
+            continue;
+        }
+
+        /*
+         * Exact canonical fullCode lookup.
+         */
+        if (
+            isset(
+                $legacyCanonicalVariantLookup[
+                    $variationSku
+                ]
+            )
+        ) {
+            foreach (
+                $legacyCanonicalVariantLookup[
+                    $variationSku
+                ] as $supplierProductId => $canonicalVariant
+            ) {
+                $canonicalFamilies[
+                    $supplierProductId
+                ]['identity'] = [
+                    'supplier_product_id' =>
+                        $canonicalVariant[
+                            'supplier_product_id'
+                        ],
+
+                    'supplier_product_code' =>
+                        $canonicalVariant[
+                            'supplier_product_code'
+                        ],
+
+                    'variant_count' =>
+                        $canonicalVariant[
+                            'variant_count'
+                        ],
+                ];
+
+                $canonicalFamilies[
+                    $supplierProductId
+                ]['variants'][] = [
+                    'full_code' => $variationSku,
+                    'variation_id' => $variationId,
+                ];
+            }
+        }
+
+        $variationEvidence[] = [
+            'variation_id' => $variationId,
+            'sku'          => $variationSku,
+            'canonical'    => isset(
+                $legacyCanonicalVariantLookup[
+                    $variationSku
+                ]
+            ),
+        ];
+    }
+
+    /*
+     * No child variant provides canonical evidence.
+     */
+    if ($canonicalFamilies === []) {
+        $legacyFamilyStats[
+            'variable_with_no_matched_variants'
+        ]++;
+
+        $legacyFamilyNoCanonicalEvidence[$wooProductId] = [
+            ...$wooProduct,
+            'evidence_type' => 'no_matching_child_variants',
+            'variation_count' => count($variationEvidence),
+            'variations' => $variationEvidence,
+            'canonical_candidates' => [],
+        ];
+
+        continue;
+    }
+
+    $legacyFamilyStats[
+        'variable_with_matched_variants'
+    ]++;
+
+    /*
+     * Exactly one canonical family has matching variants.
+     */
+    if (count($canonicalFamilies) === 1) {
+        $canonicalFamily = reset($canonicalFamilies);
+
+        $legacyFamilyDeterministicMatches[$wooProductId] = [
+            ...$wooProduct,
+            'evidence_type' => 'child_variant_full_code',
+            'variation_count' => count($variationEvidence),
+            'matched_variation_count' => count(
+                $canonicalFamily['variants']
+            ),
+            'canonical' => $canonicalFamily['identity'],
+            'matched_variants' => $canonicalFamily['variants'],
+            'all_variations' => $variationEvidence,
+        ];
+
+        continue;
+    }
+
+    /*
+     * Multiple canonical families are represented by the child SKUs.
+     *
+     * This is NOT safe for automatic adoption.
+     */
+    $legacyFamilyCandidateMatches[$wooProductId] = [
+        ...$wooProduct,
+        'evidence_type' => 'multiple_canonical_families',
+        'variation_count' => count($variationEvidence),
+        'canonical_candidates' => $canonicalFamilies,
+        'all_variations' => $variationEvidence,
+    ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| Count canonical families represented by unmatched WooCommerce
+| variation evidence.
+|--------------------------------------------------------------------------
+*/
+
+$legacyCanonicalFamiliesWithEvidence = [];
+
+foreach (
+    $legacyFamilyDeterministicMatches
+    as $familyMatch
+) {
+    $canonicalId =
+        $familyMatch['canonical']['supplier_product_id']
+        ?? null;
+
+    if (
+        is_string($canonicalId) &&
+        $canonicalId !== ''
+    ) {
+        $legacyCanonicalFamiliesWithEvidence[
+            $canonicalId
+        ] = true;
+    }
+}
+
+foreach (
+    $legacyFamilyCandidateMatches
+    as $familyMatch
+) {
+    foreach (
+        $familyMatch['canonical_candidates']
+        as $candidate
+    ) {
+        $canonicalId =
+            $candidate['identity'][
+                'supplier_product_id'
+            ] ?? null;
+
+        if (
+            is_string($canonicalId) &&
+            $canonicalId !== ''
+        ) {
+            $legacyCanonicalFamiliesWithEvidence[
+                $canonicalId
+            ] = true;
+        }
+    }
+}
+
+$legacyFamilyStats[
+    'canonical_families_with_evidence'
+] = count(
+    $legacyCanonicalFamiliesWithEvidence
+);
+
+/*
+|--------------------------------------------------------------------------
+| Family reconciliation samples.
+|--------------------------------------------------------------------------
+*/
+
+$legacyFamilyDeterministicSample = array_slice(
+    array_values($legacyFamilyDeterministicMatches),
+    0,
+    20
+);
+
+$legacyFamilyCandidateSample = array_slice(
+    array_values($legacyFamilyCandidateMatches),
+    0,
+    20
+);
+
+$legacyFamilyNoEvidenceSample = array_slice(
+    array_values($legacyFamilyNoCanonicalEvidence),
+    0,
+    20
+);
+
+/*
+|--------------------------------------------------------------------------
+| Legacy WooCommerce Product Family Reconciliation Report.
+|--------------------------------------------------------------------------
+*/
+
+echo '<h3>Legacy WooCommerce Product Family Reconciliation</h3>';
+
+echo '<pre>';
+
+echo "LEGACY WOOCOMMERCE PRODUCT FAMILY RECONCILIATION\n";
+echo "----------------------------------------------------------\n";
+
+echo "Unmatched WooCommerce products: "
+    . $legacyFamilyStats['unmatched_products']
+    . "\n";
+
+echo "Unmatched variable parents: "
+    . $legacyFamilyStats['unmatched_variable_parents']
+    . "\n";
+
+echo "Unmatched simple products: "
+    . $legacyFamilyStats['unmatched_simple_products']
+    . "\n";
+
+echo "Variable parents with matched child variants: "
+    . $legacyFamilyStats[
+        'variable_with_matched_variants'
+    ]
+    . "\n";
+
+echo "Variable parents with no matched child variants: "
+    . $legacyFamilyStats[
+        'variable_with_no_matched_variants'
+    ]
+    . "\n";
+
+echo "Deterministic family matches: "
+    . count($legacyFamilyDeterministicMatches)
+    . "\n";
+
+echo "Multiple canonical family candidates: "
+    . count($legacyFamilyCandidateMatches)
+    . "\n";
+
+echo "No canonical family evidence: "
+    . count($legacyFamilyNoCanonicalEvidence)
+    . "\n";
+
+echo "Canonical families represented by unmatched variants: "
+    . $legacyFamilyStats[
+        'canonical_families_with_evidence'
+    ]
+    . "\n";
+
+echo "\n";
+
+echo "DETERMINISTIC FAMILY MATCH SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $legacyFamilyDeterministicSample
+    as $familyMatch
+) {
+    echo "WooCommerce Parent ID: "
+        . $familyMatch['product_id']
+        . "\n";
+
+    echo "Parent SKU: "
+        . (
+            $familyMatch['sku'] !== ''
+                ? $familyMatch['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Parent title: "
+        . $familyMatch['title']
+        . "\n";
+
+    echo "WooCommerce variation count: "
+        . $familyMatch['variation_count']
+        . "\n";
+
+    echo "Matched canonical variants: "
+        . $familyMatch['matched_variation_count']
+        . "\n";
+
+    echo "Canonical supplier_product_id: "
+        . (
+            $familyMatch['canonical'][
+                'supplier_product_id'
+            ] ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Canonical supplier_product_code: "
+        . (
+            $familyMatch['canonical'][
+                'supplier_product_code'
+            ] ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Canonical variant count: "
+        . (
+            $familyMatch['canonical'][
+                'variant_count'
+            ] ?? 0
+        )
+        . "\n";
+
+    echo "Matched canonical fullCodes:\n";
+
+    foreach (
+        $familyMatch['matched_variants']
+        as $matchedVariant
+    ) {
+        echo "  - "
+            . $matchedVariant['full_code']
+            . " (Variation ID "
+            . $matchedVariant['variation_id']
+            . ")\n";
+    }
+
+    echo "\n";
+}
+
+echo "MULTIPLE CANONICAL FAMILY CANDIDATES\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $legacyFamilyCandidateSample
+    as $familyMatch
+) {
+    echo "WooCommerce Parent ID: "
+        . $familyMatch['product_id']
+        . "\n";
+
+    echo "Parent SKU: "
+        . (
+            $familyMatch['sku'] !== ''
+                ? $familyMatch['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Parent title: "
+        . $familyMatch['title']
+        . "\n";
+
+    echo "Canonical candidates:\n";
+
+    foreach (
+        $familyMatch['canonical_candidates']
+        as $candidate
+    ) {
+        echo "  - "
+            . (
+                $candidate['identity'][
+                    'supplier_product_id'
+                ] ?? 'N/A'
+            )
+            . " / "
+            . (
+                $candidate['identity'][
+                    'supplier_product_code'
+                ] ?? 'N/A'
+            )
+            . " | matched variants: "
+            . count($candidate['variants'])
+            . "\n";
+    }
+
+    echo "\n";
+}
+
+echo "NO CANONICAL FAMILY EVIDENCE SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $legacyFamilyNoEvidenceSample
+    as $familyMatch
+) {
+    echo "WooCommerce Product ID: "
+        . $familyMatch['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $familyMatch['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . (
+            $familyMatch['sku'] !== ''
+                ? $familyMatch['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Title: "
+        . $familyMatch['title']
+        . "\n";
+
+    echo "Evidence type: "
+        . $familyMatch['evidence_type']
+        . "\n";
+
+    if (
+        isset($familyMatch['variation_count'])
+    ) {
+        echo "WooCommerce variation count: "
+            . $familyMatch['variation_count']
+            . "\n";
+    }
+
+    echo "\n";
+}
+
+echo '</pre>';
+
         /*
 |--------------------------------------------------------------------------
 | WooCommerce Variant SKU Reconciliation
