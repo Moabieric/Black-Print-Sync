@@ -2526,6 +2526,887 @@ foreach (
 
 echo '</pre>';
 
+
+/*
+|--------------------------------------------------------------------------
+| Adoption Candidate Analysis
+|--------------------------------------------------------------------------
+|
+| Read-only decision analysis built from the legacy reconciliation
+| and family reconciliation results.
+|
+| This determines whether an existing legacy WooCommerce product
+| has sufficient deterministic evidence to be adopted by BlackPrint.
+|
+| This does NOT:
+| - write ownership metadata
+| - modify products
+| - modify SKUs
+| - modify images
+| - create products
+| - update products
+|
+*/
+
+/*
+|--------------------------------------------------------------------------
+| Candidate Collections
+|--------------------------------------------------------------------------
+*/
+
+$adoptionCandidates = [];
+
+$adoptionStats = [
+    'total_published_products'            => count(
+        $legacyWooCommerceProducts
+    ),
+
+    'direct_identity_adopt'               => 0,
+
+    'direct_variant_simple_adopt'         => 0,
+
+    'direct_variant_variable_review'      => 0,
+
+    'family_deterministic_adopt'          => 0,
+
+    'family_deterministic_review'         => 0,
+
+    'family_multiple_candidates_review'   => 0,
+
+    'missing_sku_review'                  => 0,
+
+    'unmatched_do_not_adopt'              => 0,
+
+    'adopt'                               => 0,
+
+    'review'                              => 0,
+
+    'do_not_adopt'                        => 0,
+];
+
+
+/*
+|--------------------------------------------------------------------------
+| Direct deterministic matches
+|--------------------------------------------------------------------------
+|
+| These were already established by the legacy product reconciliation.
+|
+*/
+
+foreach (
+    $legacyDeterministicMatches
+    as $wooProductId => $match
+) {
+
+    $methods =
+        $match['methods']
+        ?? [];
+
+    $productType =
+        $match['product_type']
+        ?? '';
+
+    $sku =
+        $match['sku']
+        ?? '';
+
+    /*
+     * Missing SKU should never become an automatic adoption candidate.
+     */
+    if ($sku === '') {
+
+        $classification =
+            'REVIEW_MISSING_SKU';
+
+        $decision =
+            'REVIEW';
+
+        $adoptionStats[
+            'missing_sku_review'
+        ]++;
+
+        $adoptionStats[
+            'review'
+        ]++;
+
+    /*
+     * Strongest evidence:
+     *
+     * supplier_product_id and/or supplier_product_code.
+     */
+    } elseif (
+        in_array(
+            'supplier_product_id',
+            $methods,
+            true
+        )
+        ||
+        in_array(
+            'supplier_product_code',
+            $methods,
+            true
+        )
+    ) {
+
+        $classification =
+            'DIRECT_IDENTITY_MATCH';
+
+        $decision =
+            'ADOPT';
+
+        $adoptionStats[
+            'direct_identity_adopt'
+        ]++;
+
+        $adoptionStats[
+            'adopt'
+        ]++;
+
+    /*
+     * Variant fullCode is sufficient for a simple product because
+     * the WooCommerce product itself represents the sellable entity.
+     */
+    } elseif (
+        in_array(
+            'variant_full_code',
+            $methods,
+            true
+        )
+        && $productType === 'simple'
+    ) {
+
+        $classification =
+            'DIRECT_VARIANT_MATCH_SIMPLE';
+
+        $decision =
+            'ADOPT';
+
+        $adoptionStats[
+            'direct_variant_simple_adopt'
+        ]++;
+
+        $adoptionStats[
+            'adopt'
+        ]++;
+
+    /*
+     * A variable parent matching only a canonical fullCode is not
+     * automatically safe. The parent may represent a broader legacy
+     * family than the canonical product.
+     */
+    } elseif (
+        in_array(
+            'variant_full_code',
+            $methods,
+            true
+        )
+        && $productType === 'variable'
+    ) {
+
+        $classification =
+            'REVIEW_VARIANT_ONLY_PARENT';
+
+        $decision =
+            'REVIEW';
+
+        $adoptionStats[
+            'direct_variant_variable_review'
+        ]++;
+
+        $adoptionStats[
+            'review'
+        ]++;
+
+    } else {
+
+        /*
+         * Defensive fallback.
+         */
+        $classification =
+            'REVIEW_UNCLASSIFIED';
+
+        $decision =
+            'REVIEW';
+
+        $adoptionStats[
+            'review'
+        ]++;
+    }
+
+    $adoptionCandidates[$wooProductId] = [
+        ...$match,
+
+        'classification' =>
+            $classification,
+
+        'decision' =>
+            $decision,
+
+        'adoption_reason' =>
+            $classification,
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Family deterministic matches
+|--------------------------------------------------------------------------
+|
+| A family match is only automatically adoptable when ALL published
+| WooCommerce child variations with usable SKUs are represented by
+| the same canonical family AND the canonical family has the same
+| number of variants.
+|
+| This prevents a partial child-variant match from becoming ownership.
+|
+*/
+
+foreach (
+    $legacyFamilyDeterministicMatches
+    as $wooProductId => $familyMatch
+) {
+
+    $variationCount =
+        (int) (
+            $familyMatch['variation_count']
+            ?? 0
+        );
+
+    $matchedVariationCount =
+        (int) (
+            $familyMatch['matched_variation_count']
+            ?? 0
+        );
+
+    $canonicalVariantCount =
+        (int) (
+            $familyMatch['canonical'][
+                'variant_count'
+            ]
+            ?? 0
+        );
+
+    $hasCompleteWooCommerceFamily =
+        $variationCount > 0
+        && $matchedVariationCount === $variationCount;
+
+    $hasCompleteCanonicalFamily =
+        $canonicalVariantCount > 0
+        && $matchedVariationCount === $canonicalVariantCount;
+
+    if (
+        $hasCompleteWooCommerceFamily
+        && $hasCompleteCanonicalFamily
+    ) {
+
+        $classification =
+            'FAMILY_DETERMINISTIC';
+
+        $decision =
+            'ADOPT';
+
+        $adoptionStats[
+            'family_deterministic_adopt'
+        ]++;
+
+        $adoptionStats[
+            'adopt'
+        ]++;
+
+        $reason =
+            'All WooCommerce child variations reconcile to one complete canonical family.';
+
+    } else {
+
+        $classification =
+            'FAMILY_DETERMINISTIC_INCOMPLETE';
+
+        $decision =
+            'REVIEW';
+
+        $adoptionStats[
+            'family_deterministic_review'
+        ]++;
+
+        $adoptionStats[
+            'review'
+        ]++;
+
+        $reason =
+            'One canonical family was identified, but the WooCommerce and canonical variant sets are not completely reconciled.';
+    }
+
+    $adoptionCandidates[$wooProductId] = [
+        ...$familyMatch,
+
+        'classification' =>
+            $classification,
+
+        'decision' =>
+            $decision,
+
+        'adoption_reason' =>
+            $reason,
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Multiple canonical family candidates
+|--------------------------------------------------------------------------
+|
+| These are structurally ambiguous and must remain review-only.
+|
+*/
+
+foreach (
+    $legacyFamilyCandidateMatches
+    as $wooProductId => $familyMatch
+) {
+
+    $adoptionCandidates[$wooProductId] = [
+        ...$familyMatch,
+
+        'classification' =>
+            'FAMILY_MULTIPLE_CANDIDATES',
+
+        'decision' =>
+            'REVIEW',
+
+        'adoption_reason' =>
+            'Child variation SKUs map to multiple canonical product families.',
+    ];
+
+    $adoptionStats[
+        'family_multiple_candidates_review'
+    ]++;
+
+    $adoptionStats[
+        'review'
+    ]++;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Missing SKU / unmatched products
+|--------------------------------------------------------------------------
+|
+| Anything remaining in the unmatched collection has no deterministic
+| direct product match.
+|
+*/
+
+foreach (
+    $legacyUnmatchedProducts
+    as $wooProductId => $wooProduct
+) {
+
+    /*
+     * Family reconciliation may already have classified this product.
+     */
+    if (
+        isset(
+            $adoptionCandidates[$wooProductId]
+        )
+    ) {
+        continue;
+    }
+
+    if (
+        ($wooProduct['sku'] ?? '') === ''
+    ) {
+
+        $classification =
+            'REVIEW_MISSING_SKU';
+
+        $decision =
+            'REVIEW';
+
+        $reason =
+            'WooCommerce product has no SKU, so deterministic canonical ownership cannot be established.';
+
+        $adoptionStats[
+            'missing_sku_review'
+        ]++;
+
+        $adoptionStats[
+            'review'
+        ]++;
+
+    } else {
+
+        $classification =
+            'UNMATCHED';
+
+        $decision =
+            'DO NOT ADOPT';
+
+        $reason =
+            'No deterministic canonical product or variant evidence was found.';
+
+        $adoptionStats[
+            'unmatched_do_not_adopt'
+        ]++;
+
+        $adoptionStats[
+            'do_not_adopt'
+        ]++;
+    }
+
+    $adoptionCandidates[$wooProductId] = [
+        ...$wooProduct,
+
+        'classification' =>
+            $classification,
+
+        'decision' =>
+            $decision,
+
+        'adoption_reason' =>
+            $reason,
+
+        'canonical' =>
+            null,
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Adoption Candidate Samples
+|--------------------------------------------------------------------------
+*/
+
+$adoptionDirectSample = [];
+
+$adoptionFamilySample = [];
+
+$adoptionReviewSample = [];
+
+$adoptionDoNotAdoptSample = [];
+
+foreach (
+    $adoptionCandidates
+    as $candidate
+) {
+
+    $decision =
+        $candidate['decision']
+        ?? '';
+
+    $classification =
+        $candidate['classification']
+        ?? '';
+
+    if (
+        $decision === 'ADOPT'
+        && str_starts_with(
+            $classification,
+            'DIRECT_'
+        )
+        && count($adoptionDirectSample) < 20
+    ) {
+
+        $adoptionDirectSample[] =
+            $candidate;
+
+    } elseif (
+        $classification === 'FAMILY_DETERMINISTIC'
+        && count($adoptionFamilySample) < 20
+    ) {
+
+        $adoptionFamilySample[] =
+            $candidate;
+
+    } elseif (
+        $decision === 'REVIEW'
+        && count($adoptionReviewSample) < 20
+    ) {
+
+        $adoptionReviewSample[] =
+            $candidate;
+
+    } elseif (
+        $decision === 'DO NOT ADOPT'
+        && count($adoptionDoNotAdoptSample) < 20
+    ) {
+
+        $adoptionDoNotAdoptSample[] =
+            $candidate;
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Adoption Candidate Analysis Report
+|--------------------------------------------------------------------------
+*/
+
+echo '<h3>Adoption Candidate Analysis</h3>';
+
+echo '<pre>';
+
+echo "ADOPTION CANDIDATE ANALYSIS\n";
+echo "----------------------------------------------------------\n";
+
+echo "Total published WooCommerce products: "
+    . $adoptionStats[
+        'total_published_products'
+    ]
+    . "\n";
+
+echo "\n";
+
+echo "SAFE TO ADOPT\n";
+echo "----------------------------------------------------------\n";
+
+echo "Direct identity matches: "
+    . $adoptionStats[
+        'direct_identity_adopt'
+    ]
+    . "\n";
+
+echo "Direct variant matches — simple products: "
+    . $adoptionStats[
+        'direct_variant_simple_adopt'
+    ]
+    . "\n";
+
+echo "Deterministic complete family matches: "
+    . $adoptionStats[
+        'family_deterministic_adopt'
+    ]
+    . "\n";
+
+echo "TOTAL ADOPT: "
+    . $adoptionStats['adopt']
+    . "\n";
+
+echo "\n";
+
+echo "REVIEW REQUIRED\n";
+echo "----------------------------------------------------------\n";
+
+echo "Variant-only variable parents: "
+    . $adoptionStats[
+        'direct_variant_variable_review'
+    ]
+    . "\n";
+
+echo "Incomplete deterministic family matches: "
+    . $adoptionStats[
+        'family_deterministic_review'
+    ]
+    . "\n";
+
+echo "Multiple canonical family candidates: "
+    . $adoptionStats[
+        'family_multiple_candidates_review'
+    ]
+    . "\n";
+
+echo "Missing SKU: "
+    . $adoptionStats[
+        'missing_sku_review'
+    ]
+    . "\n";
+
+echo "TOTAL REVIEW: "
+    . $adoptionStats['review']
+    . "\n";
+
+echo "\n";
+
+echo "DO NOT ADOPT\n";
+echo "----------------------------------------------------------\n";
+
+echo "No deterministic canonical evidence: "
+    . $adoptionStats[
+        'unmatched_do_not_adopt'
+    ]
+    . "\n";
+
+echo "TOTAL DO NOT ADOPT: "
+    . $adoptionStats['do_not_adopt']
+    . "\n";
+
+echo "\n";
+
+
+/*
+|--------------------------------------------------------------------------
+| Direct Adoption Sample
+|--------------------------------------------------------------------------
+*/
+
+echo "DIRECT ADOPTION SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $adoptionDirectSample
+    as $candidate
+) {
+
+    echo "WooCommerce Product ID: "
+        . $candidate['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $candidate['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . (
+            $candidate['sku']
+            !== ''
+                ? $candidate['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Title: "
+        . $candidate['title']
+        . "\n";
+
+    echo "Classification: "
+        . $candidate['classification']
+        . "\n";
+
+    echo "Decision: "
+        . $candidate['decision']
+        . "\n";
+
+    echo "Match method(s): "
+        . implode(
+            ', ',
+            $candidate['methods']
+            ?? []
+        )
+        . "\n";
+
+    echo "Canonical supplier_product_id: "
+        . (
+            $candidate['canonical'][
+                'supplier_product_id'
+            ]
+            ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Canonical supplier_product_code: "
+        . (
+            $candidate['canonical'][
+                'supplier_product_code'
+            ]
+            ?? 'N/A'
+        )
+        . "\n";
+
+    echo "\n";
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Family Adoption Sample
+|--------------------------------------------------------------------------
+*/
+
+echo "DETERMINISTIC FAMILY ADOPTION SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $adoptionFamilySample
+    as $candidate
+) {
+
+    echo "WooCommerce Product ID: "
+        . $candidate['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $candidate['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . (
+            $candidate['sku']
+            !== ''
+                ? $candidate['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Title: "
+        . $candidate['title']
+        . "\n";
+
+    echo "Classification: "
+        . $candidate['classification']
+        . "\n";
+
+    echo "Decision: "
+        . $candidate['decision']
+        . "\n";
+
+    echo "WooCommerce variations: "
+        . (
+            $candidate['variation_count']
+            ?? 0
+        )
+        . "\n";
+
+    echo "Matched variations: "
+        . (
+            $candidate['matched_variation_count']
+            ?? 0
+        )
+        . "\n";
+
+    echo "Canonical variants: "
+        . (
+            $candidate['canonical'][
+                'variant_count'
+            ]
+            ?? 0
+        )
+        . "\n";
+
+    echo "Canonical supplier_product_id: "
+        . (
+            $candidate['canonical'][
+                'supplier_product_id'
+            ]
+            ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Canonical supplier_product_code: "
+        . (
+            $candidate['canonical'][
+                'supplier_product_code'
+            ]
+            ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Reason: "
+        . $candidate['adoption_reason']
+        . "\n";
+
+    echo "\n";
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Review Sample
+|--------------------------------------------------------------------------
+*/
+
+echo "REVIEW SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $adoptionReviewSample
+    as $candidate
+) {
+
+    echo "WooCommerce Product ID: "
+        . $candidate['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $candidate['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . (
+            $candidate['sku']
+            !== ''
+                ? $candidate['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Title: "
+        . $candidate['title']
+        . "\n";
+
+    echo "Classification: "
+        . $candidate['classification']
+        . "\n";
+
+    echo "Decision: "
+        . $candidate['decision']
+        . "\n";
+
+    echo "Reason: "
+        . $candidate['adoption_reason']
+        . "\n";
+
+    echo "\n";
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Do Not Adopt Sample
+|--------------------------------------------------------------------------
+*/
+
+echo "DO NOT ADOPT SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach (
+    $adoptionDoNotAdoptSample
+    as $candidate
+) {
+
+    echo "WooCommerce Product ID: "
+        . $candidate['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $candidate['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . (
+            $candidate['sku']
+            !== ''
+                ? $candidate['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Title: "
+        . $candidate['title']
+        . "\n";
+
+    echo "Classification: "
+        . $candidate['classification']
+        . "\n";
+
+    echo "Decision: "
+        . $candidate['decision']
+        . "\n";
+
+    echo "Reason: "
+        . $candidate['adoption_reason']
+        . "\n";
+
+    echo "\n";
+}
+
+echo '</pre>';
+
+
         /*
 |--------------------------------------------------------------------------
 | WooCommerce Variant SKU Reconciliation
