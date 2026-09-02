@@ -949,6 +949,576 @@ $invalidDecoupledFlags = 0;
 
 /*
 |--------------------------------------------------------------------------
+| Legacy WooCommerce Product Reconciliation
+|--------------------------------------------------------------------------
+|
+| Read-only reconciliation of the existing WooCommerce catalogue against
+| the canonical BlackPrint product and variant identities.
+|
+| This does NOT:
+| - write ownership metadata
+| - modify products
+| - modify SKUs
+| - modify images
+| - create products
+| - update products
+|
+*/
+
+$legacyCanonicalProductIdLookup   = [];
+$legacyCanonicalProductCodeLookup = [];
+$legacyCanonicalVariantLookup     = [];
+
+$legacyWooCommerceProducts = [];
+$legacyWooCommerceSkuIndex = [];
+
+/*
+|--------------------------------------------------------------------------
+| Build canonical identity lookups.
+|--------------------------------------------------------------------------
+*/
+
+if ($products !== null) {
+    foreach ($products->all() as $product) {
+        $data     = $product->toArray();
+        $identity = $data['identity'] ?? [];
+        $variants = $data['variant']['items'] ?? [];
+
+        $supplierProductId =
+            $identity['supplier_product_id'] ?? null;
+
+        $supplierProductCode =
+            $identity['supplier_product_code'] ?? null;
+
+        if (
+            !is_string($supplierProductId) ||
+            $supplierProductId === ''
+        ) {
+            continue;
+        }
+
+        $canonicalIdentity = [
+            'supplier_product_id'   => $supplierProductId,
+            'supplier_product_code' => (
+                is_string($supplierProductCode) &&
+                $supplierProductCode !== ''
+            )
+                ? $supplierProductCode
+                : null,
+            'variant_count' => is_array($variants)
+                ? count($variants)
+                : 0,
+        ];
+
+        /*
+         * Product ID lookup.
+         */
+        $legacyCanonicalProductIdLookup[
+            $supplierProductId
+        ][$supplierProductId] = $canonicalIdentity;
+
+        /*
+         * Product code lookup.
+         */
+        if (
+            is_string($supplierProductCode) &&
+            $supplierProductCode !== ''
+        ) {
+            $legacyCanonicalProductCodeLookup[
+                $supplierProductCode
+            ][$supplierProductId] = $canonicalIdentity;
+        }
+
+        /*
+         * Variant fullCode lookup.
+         */
+        if (is_array($variants)) {
+            foreach ($variants as $variant) {
+                $fullCode = $variant['fullCode'] ?? null;
+
+                if (
+                    !is_string($fullCode) ||
+                    $fullCode === ''
+                ) {
+                    continue;
+                }
+
+                $legacyCanonicalVariantLookup[
+                    $fullCode
+                ][$supplierProductId] = [
+                    ...$canonicalIdentity,
+                    'full_code' => $fullCode,
+                ];
+            }
+        }
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Read all published WooCommerce products.
+|--------------------------------------------------------------------------
+*/
+
+$legacyWooCommerceProductIds = get_posts([
+    'post_type'      => 'product',
+    'post_status'    => 'publish',
+    'posts_per_page' => -1,
+    'fields'         => 'ids',
+]);
+
+foreach ($legacyWooCommerceProductIds as $productId) {
+    $productId = (int) $productId;
+
+    $sku = get_post_meta(
+        $productId,
+        '_sku',
+        true
+    );
+
+    if (!is_string($sku)) {
+        $sku = '';
+    }
+
+    $sku = trim($sku);
+
+    $wcProduct = wc_get_product($productId);
+
+    $productType = $wcProduct
+        ? $wcProduct->get_type()
+        : 'unknown';
+
+    $legacyWooCommerceProducts[$productId] = [
+        'product_id'   => $productId,
+        'sku'          => $sku,
+        'product_type' => $productType,
+        'title'        => get_the_title($productId),
+    ];
+
+    if ($sku !== '') {
+        $legacyWooCommerceSkuIndex[$sku][] = $productId;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Reconcile WooCommerce products against canonical identities.
+|--------------------------------------------------------------------------
+*/
+
+$legacyDeterministicMatches        = [];
+$legacyAmbiguousMatches            = [];
+$legacyUnmatchedProducts            = [];
+$legacyMatchedByProductIdentity     = [];
+$legacyMatchedByVariantFullCode     = [];
+$legacyDuplicateWooCommerceSkus     = [];
+
+foreach ($legacyWooCommerceProducts as $productId => $wooProduct) {
+    $sku = $wooProduct['sku'];
+
+    if ($sku === '') {
+        $legacyUnmatchedProducts[$productId] = [
+            ...$wooProduct,
+            'reason' => 'missing_sku',
+        ];
+
+        continue;
+    }
+
+    /*
+     * A duplicate WooCommerce SKU cannot be adopted
+     * deterministically.
+     */
+    $wooSkuProductIds =
+        $legacyWooCommerceSkuIndex[$sku] ?? [];
+
+    $isDuplicateWooCommerceSku =
+        count($wooSkuProductIds) > 1;
+
+    if ($isDuplicateWooCommerceSku) {
+        $legacyDuplicateWooCommerceSkus[$sku] =
+            $wooSkuProductIds;
+    }
+
+    /*
+     * Collect canonical candidates.
+     */
+    $canonicalCandidates = [];
+
+    /*
+     * Match by supplier product ID.
+     */
+    if (
+        isset(
+            $legacyCanonicalProductIdLookup[$sku]
+        )
+    ) {
+        foreach (
+            $legacyCanonicalProductIdLookup[$sku]
+            as $supplierProductId => $identity
+        ) {
+            $canonicalCandidates[$supplierProductId] ??= [
+                'identity' => $identity,
+                'methods'  => [],
+            ];
+
+            $canonicalCandidates[
+                $supplierProductId
+            ]['methods'][] = 'supplier_product_id';
+        }
+    }
+
+    /*
+     * Match by supplier product code.
+     */
+    if (
+        isset(
+            $legacyCanonicalProductCodeLookup[$sku]
+        )
+    ) {
+        foreach (
+            $legacyCanonicalProductCodeLookup[$sku]
+            as $supplierProductId => $identity
+        ) {
+            $canonicalCandidates[$supplierProductId] ??= [
+                'identity' => $identity,
+                'methods'  => [],
+            ];
+
+            $canonicalCandidates[
+                $supplierProductId
+            ]['methods'][] = 'supplier_product_code';
+        }
+    }
+
+    /*
+     * Match by variant fullCode.
+     */
+    if (
+        isset(
+            $legacyCanonicalVariantLookup[$sku]
+        )
+    ) {
+        foreach (
+            $legacyCanonicalVariantLookup[$sku]
+            as $supplierProductId => $identity
+        ) {
+            $canonicalCandidates[$supplierProductId] ??= [
+                'identity' => $identity,
+                'methods'  => [],
+            ];
+
+            $canonicalCandidates[
+                $supplierProductId
+            ]['methods'][] = 'variant_full_code';
+        }
+    }
+
+    /*
+     * No canonical candidate.
+     */
+    if ($canonicalCandidates === []) {
+        $legacyUnmatchedProducts[$productId] = [
+            ...$wooProduct,
+            'reason' => 'no_canonical_match',
+        ];
+
+        continue;
+    }
+
+    /*
+     * More than one canonical product candidate means
+     * the relationship is ambiguous.
+     */
+    if (
+        count($canonicalCandidates) > 1 ||
+        $isDuplicateWooCommerceSku
+    ) {
+        $legacyAmbiguousMatches[$productId] = [
+            ...$wooProduct,
+            'canonical_candidates' => $canonicalCandidates,
+            'wooCommerce_sku_ids'  => $wooSkuProductIds,
+        ];
+
+        continue;
+    }
+
+    /*
+     * Exactly one canonical product candidate.
+     */
+    $candidate = reset($canonicalCandidates);
+
+    $canonicalIdentity = $candidate['identity'];
+    $methods            = array_values(
+        array_unique($candidate['methods'])
+    );
+
+    $match = [
+        ...$wooProduct,
+        'canonical' => $canonicalIdentity,
+        'methods'   => $methods,
+    ];
+
+    $legacyDeterministicMatches[$productId] = $match;
+
+    if (
+        in_array(
+            'supplier_product_id',
+            $methods,
+            true
+        ) ||
+        in_array(
+            'supplier_product_code',
+            $methods,
+            true
+        )
+    ) {
+        $legacyMatchedByProductIdentity[$productId] =
+            $match;
+    }
+
+    if (
+        in_array(
+            'variant_full_code',
+            $methods,
+            true
+        )
+    ) {
+        $legacyMatchedByVariantFullCode[$productId] =
+            $match;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Reconciliation samples.
+|--------------------------------------------------------------------------
+*/
+
+$legacyDeterministicSample = array_slice(
+    array_values($legacyDeterministicMatches),
+    0,
+    20
+);
+
+$legacyAmbiguousSample = array_slice(
+    array_values($legacyAmbiguousMatches),
+    0,
+    20
+);
+
+$legacyUnmatchedSample = array_slice(
+    array_values($legacyUnmatchedProducts),
+    0,
+    20
+);
+
+/*
+|--------------------------------------------------------------------------
+| Legacy WooCommerce Product Reconciliation Report.
+|--------------------------------------------------------------------------
+*/
+
+echo '<h3>Legacy WooCommerce Product Reconciliation</h3>';
+
+echo '<pre>';
+
+echo "LEGACY WOOCOMMERCE PRODUCT RECONCILIATION\n";
+echo "----------------------------------------------------------\n";
+
+echo "Published WooCommerce products: "
+    . count($legacyWooCommerceProducts)
+    . "\n";
+
+echo "Products with SKU: "
+    . count(
+        array_filter(
+            $legacyWooCommerceProducts,
+            static fn(array $product): bool =>
+                $product['sku'] !== ''
+        )
+    )
+    . "\n";
+
+echo "Products without SKU: "
+    . count(
+        array_filter(
+            $legacyWooCommerceProducts,
+            static fn(array $product): bool =>
+                $product['sku'] === ''
+        )
+    )
+    . "\n";
+
+echo "Deterministic canonical matches: "
+    . count($legacyDeterministicMatches)
+    . "\n";
+
+echo "Matched by product identity: "
+    . count($legacyMatchedByProductIdentity)
+    . "\n";
+
+echo "Matched by variant fullCode: "
+    . count($legacyMatchedByVariantFullCode)
+    . "\n";
+
+echo "Ambiguous matches: "
+    . count($legacyAmbiguousMatches)
+    . "\n";
+
+echo "Unmatched products: "
+    . count($legacyUnmatchedProducts)
+    . "\n";
+
+echo "Duplicate WooCommerce SKUs: "
+    . count($legacyDuplicateWooCommerceSkus)
+    . "\n";
+
+echo "\n";
+
+echo "DETERMINISTIC MATCH SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach ($legacyDeterministicSample as $match) {
+    echo "WooCommerce Product ID: "
+        . $match['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $match['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . $match['sku']
+        . "\n";
+
+    echo "Title: "
+        . $match['title']
+        . "\n";
+
+    echo "Match method(s): "
+        . implode(', ', $match['methods'])
+        . "\n";
+
+    echo "Canonical supplier_product_id: "
+        . (
+            $match['canonical']['supplier_product_id']
+            ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Canonical supplier_product_code: "
+        . (
+            $match['canonical']['supplier_product_code']
+            ?? 'N/A'
+        )
+        . "\n";
+
+    echo "Canonical variant count: "
+        . (
+            $match['canonical']['variant_count']
+            ?? 0
+        )
+        . "\n";
+
+    echo "\n";
+}
+
+echo "AMBIGUOUS MATCH SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach ($legacyAmbiguousSample as $match) {
+    echo "WooCommerce Product ID: "
+        . $match['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $match['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . $match['sku']
+        . "\n";
+
+    echo "Title: "
+        . $match['title']
+        . "\n";
+
+    echo "Canonical candidates:\n";
+
+    foreach (
+        $match['canonical_candidates']
+        as $candidate
+    ) {
+        $identity = $candidate['identity'];
+
+        echo "  - "
+            . (
+                $identity['supplier_product_id']
+                ?? 'N/A'
+            )
+            . " / "
+            . (
+                $identity['supplier_product_code']
+                ?? 'N/A'
+            )
+            . " ["
+            . implode(
+                ', ',
+                $candidate['methods']
+            )
+            . "]\n";
+    }
+
+    if (
+        count($match['wooCommerce_sku_ids']) > 1
+    ) {
+        echo "WooCommerce products sharing SKU: "
+            . implode(
+                ', ',
+                $match['wooCommerce_sku_ids']
+            )
+            . "\n";
+    }
+
+    echo "\n";
+}
+
+echo "UNMATCHED PRODUCT SAMPLE\n";
+echo "----------------------------------------------------------\n";
+
+foreach ($legacyUnmatchedSample as $match) {
+    echo "WooCommerce Product ID: "
+        . $match['product_id']
+        . "\n";
+
+    echo "Type: "
+        . $match['product_type']
+        . "\n";
+
+    echo "SKU: "
+        . (
+            $match['sku'] !== ''
+                ? $match['sku']
+                : '[NO SKU]'
+        )
+        . "\n";
+
+    echo "Title: "
+        . $match['title']
+        . "\n";
+
+    echo "Reason: "
+        . $match['reason']
+        . "\n";
+
+    echo "\n";
+}
+
+echo '</pre>';
+
+/*
+|--------------------------------------------------------------------------
 | WooCommerce Variant SKU Reconciliation
 |--------------------------------------------------------------------------
 */
