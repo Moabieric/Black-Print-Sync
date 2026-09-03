@@ -5709,11 +5709,20 @@ foreach ($ownershipExcludedProducts as $excluded) {
 
     if ($excluded['decision'] === 'REVIEW') {
         $ownershipReviewCount++;
+        continue;
     }
 
-    if ($excluded['decision'] === 'DO_NOT_ADOPT') {
-        $ownershipDoNotAdoptCount++;
-    }
+    /*
+    |--------------------------------------------------------------------------
+    | Any non-ADOPT, non-REVIEW candidate is treated as DO NOT ADOPT
+    | for the ownership-write exclusion report.
+    |
+    | This keeps the write layer independent from the presentation label
+    | used by Adoption Candidate Analysis.
+    |--------------------------------------------------------------------------
+    */
+
+    $ownershipDoNotAdoptCount++;
 }
 
 
