@@ -5254,7 +5254,818 @@ if (!empty($verificationWarnings)) {
 
 echo '</pre>';
 
+/*
+|--------------------------------------------------------------------------
+| Step 5A — Controlled Adoption / Ownership Write — DRY RUN
+|--------------------------------------------------------------------------
+|
+| Read-only.
+|
+| Consumes ONLY the verified $adoptionMappings produced by:
+|
+|   Step 3 — Adoption Mapping
+|   Step 4 — Adoption Mapping Verification
+|
+| No new reconciliation is performed here.
+| No WooCommerce writes are performed here.
+|
+| This step determines exactly which ownership metadata would be written
+| during the controlled adoption commit.
+|
+| Parent ownership:
+|   _blackprint_managed
+|   _blackprint_supplier
+|   _blackprint_product_id
+|   _blackprint_product_code
+|
+| Variant ownership:
+|   _blackprint_managed
+|   _blackprint_supplier
+|   _blackprint_variant_code
+|
+| Existing ownership is NEVER overwritten during the dry run.
+|
+*/
 
+echo '<h2>CONTROLLED ADOPTION / OWNERSHIP WRITE — DRY RUN</h2>';
+echo '<pre>';
+
+$ownershipDryRunErrors = [];
+$ownershipDryRunWarnings = [];
+
+$ownershipWouldAdoptParents = [];
+$ownershipAlreadyManagedParents = [];
+$ownershipParentConflicts = [];
+
+$ownershipWouldAdoptVariants = [];
+$ownershipAlreadyManagedVariants = [];
+$ownershipVariantConflicts = [];
+
+$ownershipExcludedProducts = [];
+
+$ownershipDryRunApprovedCount = 0;
+$ownershipDryRunParentCount = 0;
+$ownershipDryRunVariantCount = 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| Safety Guard
+|--------------------------------------------------------------------------
+|
+| Step 5 must consume the verified adoption mappings.
+|
+*/
+
+if (!isset($adoptionMappings) || !is_array($adoptionMappings)) {
+
+    $ownershipDryRunErrors[] = [
+        'reason' => 'ADOPTION_MAPPINGS_NOT_AVAILABLE',
+    ];
+
+} else {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Process verified adoption mappings only
+    |--------------------------------------------------------------------------
+    */
+
+    foreach ($adoptionMappings as $productId => $mapping) {
+
+        $productId = (int) $productId;
+
+        if ($productId <= 0) {
+            $ownershipDryRunErrors[] = [
+                'product_id' => $productId,
+                'reason'     => 'INVALID_WOOCOMMERCE_PRODUCT_ID',
+            ];
+
+            continue;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Mapping must explicitly be ADOPT
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            !isset($mapping['decision'])
+            || $mapping['decision'] !== 'ADOPT'
+        ) {
+            $ownershipDryRunErrors[] = [
+                'product_id' => $productId,
+                'reason'     => 'MAPPING_IS_NOT_ADOPT',
+            ];
+
+            continue;
+        }
+
+        $ownershipDryRunApprovedCount++;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Canonical product identity
+        |--------------------------------------------------------------------------
+        */
+
+        $canonicalProductId = isset($mapping['canonical_product_id'])
+            ? (string) $mapping['canonical_product_id']
+            : '';
+
+        $canonicalProductCode = isset($mapping['canonical_product_code'])
+            ? (string) $mapping['canonical_product_code']
+            : '';
+
+        if ($canonicalProductId === '') {
+
+            $ownershipDryRunErrors[] = [
+                'product_id' => $productId,
+                'reason'     => 'MISSING_CANONICAL_PRODUCT_ID',
+            ];
+
+            continue;
+        }
+
+        if ($canonicalProductCode === '') {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Product code is important, but the canonical product ID is the
+            | authoritative identity. Treat missing code as an error for the
+            | controlled ownership write because we do not want to establish
+            | incomplete ownership metadata.
+            |--------------------------------------------------------------------------
+            */
+
+            $ownershipDryRunErrors[] = [
+                'product_id'          => $productId,
+                'canonical_product_id'=> $canonicalProductId,
+                'reason'              => 'MISSING_CANONICAL_PRODUCT_CODE',
+            ];
+
+            continue;
+        }
+
+        $ownershipDryRunParentCount++;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Expected parent ownership
+        |--------------------------------------------------------------------------
+        */
+
+        $expectedParentOwnership = [
+            '_blackprint_managed'      => 'yes',
+            '_blackprint_supplier'     => 'amrod',
+            '_blackprint_product_id'   => $canonicalProductId,
+            '_blackprint_product_code' => $canonicalProductCode,
+        ];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Inspect existing parent ownership
+        |--------------------------------------------------------------------------
+        */
+
+        $existingManaged = get_post_meta(
+            $productId,
+            '_blackprint_managed',
+            true
+        );
+
+        $existingSupplier = get_post_meta(
+            $productId,
+            '_blackprint_supplier',
+            true
+        );
+
+        $existingProductId = get_post_meta(
+            $productId,
+            '_blackprint_product_id',
+            true
+        );
+
+        $existingProductCode = get_post_meta(
+            $productId,
+            '_blackprint_product_code',
+            true
+        );
+
+        $hasExistingOwnership =
+            $existingManaged !== ''
+            || $existingSupplier !== ''
+            || $existingProductId !== ''
+            || $existingProductCode !== '';
+
+        /*
+        |--------------------------------------------------------------------------
+        | Existing ownership classification
+        |--------------------------------------------------------------------------
+        */
+
+        if (!$hasExistingOwnership) {
+
+            $ownershipWouldAdoptParents[$productId] = [
+                'woocommerce_product_id' => $productId,
+                'canonical_product_id'   => $canonicalProductId,
+                'canonical_product_code' => $canonicalProductCode,
+            ];
+
+        } elseif (
+            (string) $existingManaged === 'yes'
+            && (string) $existingSupplier === 'amrod'
+            && (string) $existingProductId === $canonicalProductId
+            && (string) $existingProductCode === $canonicalProductCode
+        ) {
+
+            $ownershipAlreadyManagedParents[$productId] = [
+                'woocommerce_product_id' => $productId,
+                'canonical_product_id'   => $canonicalProductId,
+                'canonical_product_code' => $canonicalProductCode,
+            ];
+
+        } else {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Existing ownership conflicts with the verified adoption target.
+            |
+            | NEVER overwrite this automatically.
+            |--------------------------------------------------------------------------
+            */
+
+            $ownershipParentConflicts[$productId] = [
+                'woocommerce_product_id' => $productId,
+                'expected'               => $expectedParentOwnership,
+                'existing'               => [
+                    '_blackprint_managed'      => (string) $existingManaged,
+                    '_blackprint_supplier'     => (string) $existingSupplier,
+                    '_blackprint_product_id'   => (string) $existingProductId,
+                    '_blackprint_product_code' => (string) $existingProductCode,
+                ],
+            ];
+
+            continue;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Variant ownership
+        |--------------------------------------------------------------------------
+        |
+        | IMPORTANT:
+        |
+        | We process ONLY variants explicitly present in the verified
+        | adoption mapping.
+        |
+        | Unmapped legacy children are NOT adopted.
+        |
+        */
+
+        $mappingVariants = isset($mapping['variants'])
+            && is_array($mapping['variants'])
+            ? $mapping['variants']
+            : [];
+
+        foreach ($mappingVariants as $variantMapping) {
+
+            $variationId = isset($variantMapping['woocommerce_variation_id'])
+                ? (int) $variantMapping['woocommerce_variation_id']
+                : 0;
+
+            $woocommerceSku = isset($variantMapping['woocommerce_sku'])
+                ? (string) $variantMapping['woocommerce_sku']
+                : '';
+
+            $canonicalVariantCode = isset(
+                $variantMapping['canonical_variant_code']
+            )
+                ? (string) $variantMapping['canonical_variant_code']
+                : '';
+
+            /*
+            |--------------------------------------------------------------------------
+            | Simple products have no variation ID.
+            |
+            | For those, the product itself represents the sellable variant,
+            | but parent ownership is still handled above.
+            |--------------------------------------------------------------------------
+            */
+
+            if ($variationId <= 0) {
+                continue;
+            }
+
+            if ($canonicalVariantCode === '') {
+
+                $ownershipDryRunErrors[] = [
+                    'product_id'   => $productId,
+                    'variation_id' => $variationId,
+                    'reason'       => 'MISSING_CANONICAL_VARIANT_CODE',
+                ];
+
+                continue;
+            }
+
+            $ownershipDryRunVariantCount++;
+
+            /*
+            |--------------------------------------------------------------------------
+            | Expected variant ownership
+            |--------------------------------------------------------------------------
+            */
+
+            $expectedVariantOwnership = [
+                '_blackprint_managed'      => 'yes',
+                '_blackprint_supplier'     => 'amrod',
+                '_blackprint_variant_code' => $canonicalVariantCode,
+            ];
+
+            /*
+            |--------------------------------------------------------------------------
+            | Inspect existing variant ownership
+            |--------------------------------------------------------------------------
+            */
+
+            $existingVariantManaged = get_post_meta(
+                $variationId,
+                '_blackprint_managed',
+                true
+            );
+
+            $existingVariantSupplier = get_post_meta(
+                $variationId,
+                '_blackprint_supplier',
+                true
+            );
+
+            $existingVariantCode = get_post_meta(
+                $variationId,
+                '_blackprint_variant_code',
+                true
+            );
+
+            $hasExistingVariantOwnership =
+                $existingVariantManaged !== ''
+                || $existingVariantSupplier !== ''
+                || $existingVariantCode !== '';
+
+            /*
+            |--------------------------------------------------------------------------
+            | Variant ownership classification
+            |--------------------------------------------------------------------------
+            */
+
+            if (!$hasExistingVariantOwnership) {
+
+                $ownershipWouldAdoptVariants[$variationId] = [
+                    'woocommerce_product_id'   => $productId,
+                    'woocommerce_variation_id' => $variationId,
+                    'woocommerce_sku'          => $woocommerceSku,
+                    'canonical_variant_code'   => $canonicalVariantCode,
+                ];
+
+            } elseif (
+                (string) $existingVariantManaged === 'yes'
+                && (string) $existingVariantSupplier === 'amrod'
+                && (string) $existingVariantCode === $canonicalVariantCode
+            ) {
+
+                $ownershipAlreadyManagedVariants[$variationId] = [
+                    'woocommerce_product_id'   => $productId,
+                    'woocommerce_variation_id' => $variationId,
+                    'woocommerce_sku'          => $woocommerceSku,
+                    'canonical_variant_code'   => $canonicalVariantCode,
+                ];
+
+            } else {
+
+                /*
+                |--------------------------------------------------------------------------
+                | Existing conflicting variant ownership.
+                |
+                | NEVER overwrite automatically.
+                |--------------------------------------------------------------------------
+                */
+
+                $ownershipVariantConflicts[$variationId] = [
+                    'woocommerce_product_id'   => $productId,
+                    'woocommerce_variation_id' => $variationId,
+                    'woocommerce_sku'          => $woocommerceSku,
+                    'expected'                 => $expectedVariantOwnership,
+                    'existing'                 => [
+                        '_blackprint_managed'      => (string) $existingVariantManaged,
+                        '_blackprint_supplier'     => (string) $existingVariantSupplier,
+                        '_blackprint_variant_code' => (string) $existingVariantCode,
+                    ],
+                ];
+            }
+        }
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Explicit exclusion accounting
+|--------------------------------------------------------------------------
+|
+| These are NOT written by Step 5.
+|
+*/
+
+if (isset($adoptionCandidates) && is_array($adoptionCandidates)) {
+
+    foreach ($adoptionCandidates as $productId => $candidate) {
+
+        $decision = isset($candidate['decision'])
+            ? (string) $candidate['decision']
+            : '';
+
+        if ($decision === 'ADOPT') {
+            continue;
+        }
+
+        $ownershipExcludedProducts[$productId] = [
+            'product_id' => (int) $productId,
+            'decision'   => $decision,
+        ];
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Count exclusions by decision
+|--------------------------------------------------------------------------
+*/
+
+$ownershipReviewCount = 0;
+$ownershipDoNotAdoptCount = 0;
+
+foreach ($ownershipExcludedProducts as $excluded) {
+
+    if ($excluded['decision'] === 'REVIEW') {
+        $ownershipReviewCount++;
+    }
+
+    if ($excluded['decision'] === 'DO_NOT_ADOPT') {
+        $ownershipDoNotAdoptCount++;
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Final dry-run status
+|--------------------------------------------------------------------------
+|
+| Any conflict or error prevents the dry run from being considered safe.
+|
+*/
+
+$ownershipDryRunErrorCount =
+    count($ownershipDryRunErrors);
+
+$ownershipParentConflictCount =
+    count($ownershipParentConflicts);
+
+$ownershipVariantConflictCount =
+    count($ownershipVariantConflicts);
+
+$ownershipDryRunStatus =
+    $ownershipDryRunErrorCount === 0
+    && $ownershipParentConflictCount === 0
+    && $ownershipVariantConflictCount === 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| REPORT
+|--------------------------------------------------------------------------
+*/
+
+echo "CONTROLLED ADOPTION / OWNERSHIP WRITE — DRY RUN\n";
+echo str_repeat('=', 58) . "\n\n";
+
+echo "SOURCE\n";
+echo str_repeat('-', 58) . "\n";
+echo "Verified adoption mappings:       "
+    . count($adoptionMappings ?? [])
+    . "\n";
+
+echo "Approved mappings processed:      "
+    . $ownershipDryRunApprovedCount
+    . "\n";
+
+echo "Parent mappings inspected:        "
+    . $ownershipDryRunParentCount
+    . "\n";
+
+echo "Variant mappings inspected:       "
+    . $ownershipDryRunVariantCount
+    . "\n\n";
+
+
+echo "PARENT OWNERSHIP\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Would adopt:                       "
+    . count($ownershipWouldAdoptParents)
+    . "\n";
+
+echo "Already correctly managed:        "
+    . count($ownershipAlreadyManagedParents)
+    . "\n";
+
+echo "Conflicts:                         "
+    . $ownershipParentConflictCount
+    . "\n\n";
+
+
+echo "VARIANT OWNERSHIP\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Would adopt:                       "
+    . count($ownershipWouldAdoptVariants)
+    . "\n";
+
+echo "Already correctly managed:        "
+    . count($ownershipAlreadyManagedVariants)
+    . "\n";
+
+echo "Conflicts:                         "
+    . $ownershipVariantConflictCount
+    . "\n\n";
+
+
+echo "EXCLUSIONS\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Review products excluded:         "
+    . $ownershipReviewCount
+    . "\n";
+
+echo "Do-not-adopt products excluded:   "
+    . $ownershipDoNotAdoptCount
+    . "\n";
+
+echo "Total excluded products:          "
+    . count($ownershipExcludedProducts)
+    . "\n\n";
+
+
+echo "PLANNED METADATA WRITES\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Parent metadata writes:            "
+    . (count($ownershipWouldAdoptParents) * 4)
+    . "\n";
+
+echo "Variant metadata writes:           "
+    . (count($ownershipWouldAdoptVariants) * 3)
+    . "\n";
+
+echo "Total metadata writes:             "
+    . (
+        (count($ownershipWouldAdoptParents) * 4)
+        + (count($ownershipWouldAdoptVariants) * 3)
+    )
+    . "\n\n";
+
+
+echo "SAFETY CHECKS\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "No WooCommerce writes performed:   YES\n";
+echo "Only verified mappings consumed:   "
+    . (
+        $ownershipDryRunApprovedCount === count($adoptionMappings ?? [])
+            ? 'YES'
+            : 'NO'
+    )
+    . "\n";
+
+echo "Conflicting ownership preserved:  YES\n";
+echo "Unmapped variants excluded:        YES\n\n";
+
+
+echo "ERRORS\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Errors:                            "
+    . $ownershipDryRunErrorCount
+    . "\n";
+
+echo "Parent ownership conflicts:        "
+    . $ownershipParentConflictCount
+    . "\n";
+
+echo "Variant ownership conflicts:       "
+    . $ownershipVariantConflictCount
+    . "\n\n";
+
+
+echo "STATUS: "
+    . ($ownershipDryRunStatus ? 'PASS' : 'FAIL')
+    . "\n";
+
+
+/*
+|--------------------------------------------------------------------------
+| ERROR SAMPLES
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($ownershipDryRunErrors)) {
+
+    echo "\n";
+    echo "ERROR SAMPLES\n";
+    echo str_repeat('-', 58) . "\n";
+
+    $sampleErrors = array_slice(
+        $ownershipDryRunErrors,
+        0,
+        10
+    );
+
+    foreach ($sampleErrors as $error) {
+
+        echo "WC Product ID: "
+            . ($error['product_id'] ?? 'N/A')
+            . "\n";
+
+        if (isset($error['variation_id'])) {
+            echo "Variation ID:   "
+                . $error['variation_id']
+                . "\n";
+        }
+
+        echo "Reason: "
+            . ($error['reason'] ?? 'UNKNOWN')
+            . "\n\n";
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| PARENT CONFLICT SAMPLES
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($ownershipParentConflicts)) {
+
+    echo "\n";
+    echo "PARENT OWNERSHIP CONFLICT SAMPLES\n";
+    echo str_repeat('-', 58) . "\n";
+
+    $sampleConflicts = array_slice(
+        $ownershipParentConflicts,
+        0,
+        10
+    );
+
+    foreach ($sampleConflicts as $conflict) {
+
+        echo "WC Product ID: "
+            . $conflict['woocommerce_product_id']
+            . "\n";
+
+        echo "Expected canonical product ID: "
+            . $conflict['expected']['_blackprint_product_id']
+            . "\n";
+
+        echo "Existing canonical product ID: "
+            . $conflict['existing']['_blackprint_product_id']
+            . "\n";
+
+        echo "Expected supplier: "
+            . $conflict['expected']['_blackprint_supplier']
+            . "\n";
+
+        echo "Existing supplier: "
+            . $conflict['existing']['_blackprint_supplier']
+            . "\n\n";
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| VARIANT CONFLICT SAMPLES
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($ownershipVariantConflicts)) {
+
+    echo "\n";
+    echo "VARIANT OWNERSHIP CONFLICT SAMPLES\n";
+    echo str_repeat('-', 58) . "\n";
+
+    $sampleVariantConflicts = array_slice(
+        $ownershipVariantConflicts,
+        0,
+        10
+    );
+
+    foreach ($sampleVariantConflicts as $conflict) {
+
+        echo "WC Product ID: "
+            . $conflict['woocommerce_product_id']
+            . "\n";
+
+        echo "Variation ID: "
+            . $conflict['woocommerce_variation_id']
+            . "\n";
+
+        echo "WooCommerce SKU: "
+            . $conflict['woocommerce_sku']
+            . "\n";
+
+        echo "Expected canonical variant: "
+            . $conflict['expected']['_blackprint_variant_code']
+            . "\n";
+
+        echo "Existing canonical variant: "
+            . $conflict['existing']['_blackprint_variant_code']
+            . "\n\n";
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| ADOPTION SAMPLES
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($ownershipWouldAdoptParents)) {
+
+    echo "\n";
+    echo "PARENT ADOPTION SAMPLES\n";
+    echo str_repeat('-', 58) . "\n";
+
+    $sampleParents = array_slice(
+        $ownershipWouldAdoptParents,
+        0,
+        10,
+        true
+    );
+
+    foreach ($sampleParents as $parent) {
+
+        echo "WC Product ID: "
+            . $parent['woocommerce_product_id']
+            . "\n";
+
+        echo "Canonical Product ID: "
+            . $parent['canonical_product_id']
+            . "\n";
+
+        echo "Canonical Product Code: "
+            . $parent['canonical_product_code']
+            . "\n\n";
+    }
+}
+
+
+if (!empty($ownershipWouldAdoptVariants)) {
+
+    echo "\n";
+    echo "VARIANT ADOPTION SAMPLES\n";
+    echo str_repeat('-', 58) . "\n";
+
+    $sampleVariants = array_slice(
+        $ownershipWouldAdoptVariants,
+        0,
+        10,
+        true
+    );
+
+    foreach ($sampleVariants as $variant) {
+
+        echo "WC Product ID: "
+            . $variant['woocommerce_product_id']
+            . "\n";
+
+        echo "Variation ID: "
+            . $variant['woocommerce_variation_id']
+            . "\n";
+
+        echo "WooCommerce SKU: "
+            . $variant['woocommerce_sku']
+            . "\n";
+
+        echo "Canonical Variant: "
+            . $variant['canonical_variant_code']
+            . "\n\n";
+    }
+}
+
+echo '</pre>';
 
         /*
 |--------------------------------------------------------------------------
