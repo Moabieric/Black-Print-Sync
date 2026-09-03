@@ -8659,31 +8659,31 @@ public function test_woocommerce_projection(): void
     }
 
     /**
- * Commit verified WooCommerce ownership adoption.
- *
- * Step 5B.
- *
- * This action consumes only a server-side verified adoption hand-off
- * created by the Step 3/4/5A verification pipeline.
- *
- * It does not accept adoption mappings from the browser.
- *
- * It:
- *
- * - Requires manage_woocommerce capability.
- * - Verifies the admin nonce.
- * - Validates the supplied artifact ID.
- * - Loads the server-side verified adoption hand-off.
- * - Requires the hand-off to belong to the current administrator.
- * - Commits ownership metadata only.
- * - Creates no products.
- * - Creates no variations.
- * - Does not modify SKUs.
- * - Performs post-write ownership verification.
- * - Deletes the hand-off only after a successful commit and verification.
- *
- * A failed commit leaves the hand-off intact for investigation.
- */
+     * Commit verified WooCommerce ownership adoption.
+     *
+     * Step 5B.
+     *
+     * This action consumes only a server-side verified adoption hand-off
+     * created by the Step 3/4/5A verification pipeline.
+     *
+     * It does not accept adoption mappings from the browser.
+     *
+     * It:
+     *
+     * - Requires manage_woocommerce capability.
+     * - Verifies the admin nonce.
+     * - Validates the supplied artifact ID.
+     * - Loads the server-side verified adoption hand-off.
+     * - Requires the hand-off to belong to the current administrator.
+     * - Commits ownership metadata only.
+     * - Creates no products.
+     * - Creates no variations.
+     * - Does not modify SKUs.
+     * - Performs post-write ownership verification.
+     * - Deletes the hand-off only after a successful commit and verification.
+     *
+     * A failed commit leaves the hand-off intact for investigation.
+     */
 public function commit_woocommerce_ownership(): void
 {
     if (
@@ -8876,7 +8876,6 @@ public function commit_woocommerce_ownership(): void
                     58
                 );
 
-            $output[] = '';
 
             $output[] =
                 'Artifact ID:                     ' .
@@ -8897,7 +8896,6 @@ public function commit_woocommerce_ownership(): void
                 'Explicit variant ownership:      ' .
                 $explicitVariantOwnershipCount;
 
-            $output[] = '';
 
             $output[] =
                 'Message:                         ' .
@@ -8906,7 +8904,6 @@ public function commit_woocommerce_ownership(): void
                     ?? 'Ownership commit failed.'
                 );
 
-            $output[] = '';
 
             $output[] =
                 'WooCommerce writes may have occurred: '
@@ -8921,7 +8918,6 @@ public function commit_woocommerce_ownership(): void
             $output[] =
                 'Hand-off preserved:              YES';
 
-            $output[] = '';
 
             $output[] =
                 'Write errors:';
@@ -8994,8 +8990,6 @@ public function commit_woocommerce_ownership(): void
             );
         }
 
-        $output = [];
-
         $output[] =
             'WOOCOMMERCE OWNERSHIP COMMIT — SUCCESS';
 
@@ -9004,8 +8998,6 @@ public function commit_woocommerce_ownership(): void
                 '=',
                 58
             );
-
-        $output[] = '';
 
         $output[] =
             'Artifact ID:                     ' .
@@ -9026,23 +9018,34 @@ public function commit_woocommerce_ownership(): void
             'Explicit variant ownership:      ' .
             $explicitVariantOwnershipCount;
 
-        $output[] = '';
 
         $output[] =
-            'Parent ownership records:        ' .
+            'Parent ownership written:        ' .
             (
-                $result['audit']['parent_ownership_records']
+                $result['audit']['parents_written']
                 ?? 0
             );
 
         $output[] =
-            'Variant ownership records:       ' .
+            'Variant ownership written:       ' .
             (
-                $result['audit']['variant_ownership_records']
+                $result['audit']['variants_written']
                 ?? 0
             );
 
-        $output[] = '';
+        $output[] =
+            'Parents already managed:         ' .
+            (
+                $result['audit']['parents_already_managed']
+                ?? 0
+            );
+
+        $output[] =
+            'Variants already managed:        ' .
+            (
+                $result['audit']['variants_already_managed']
+                ?? 0
+            );
 
         $output[] =
             'Post-write verification:          PASS';
@@ -9056,7 +9059,6 @@ public function commit_woocommerce_ownership(): void
         $output[] =
             'Incorrect canonical identities:    0';
 
-        $output[] = '';
 
         $output[] =
             'Hand-off deleted:                 YES';
