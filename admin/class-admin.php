@@ -3834,13 +3834,12 @@ foreach ($adoptionCandidates as $productId => $candidate) {
                 continue;
             }
 
-            $mapping['variants'][] = [
-    'woocommerce_variation_id' => $variationId,
-    'woocommerce_sku'          => $variationSku,
-    'canonical_variant_code'   => (string) (
-        $variantIdentity['full_code'] ?? $variationSku
-    ),
-];
+                $mapping['variants'][] = [
+                        'woocommerce_variation_id' => $variationId,
+                        'woocommerce_sku'          => $variationSku,
+                        'canonical_variant_code'   => (string) (
+                    $variantIdentity['full_code'] ?? $variationSku
+                ),            ];
 
             $mapping['matched_variant_count']++;
 
@@ -4284,6 +4283,1572 @@ foreach ($adoptionMappings as $mapping) {
 
 echo '</pre>';
 
+
+/* -------------------------------------------------------------------------
+ * STEP 4 — ADOPTION MAPPING VERIFICATION
+ * ---------------------------------------------------------------------- */
+
+echo '<h2>ADOPTION MAPPING VERIFICATION</h2>';
+
+$mappingVerificationErrors   = [];
+$mappingVerificationWarnings = [];
+
+$verifiedWooCommerceProducts = [];
+$verifiedCanonicalProducts   = [];
+$verifiedCanonicalVariants   = [];
+
+$warningClassification = [
+    'cross_family_variant'    => 0,
+    'missing_canonical_variant' => 0,
+    'incomplete_family'       => 0,
+];
+
+$verificationStats = [
+    'approved_candidates'          => 0,
+    'products_verified'            => 0,
+    'products_missing_mapping'     => 0,
+    'products_multiple_targets'    => 0,
+    'duplicate_canonical_claims'   => 0,
+    'variations_verified'          => 0,
+    'variations_missing_mapping'   => 0,
+    'variations_ambiguous'         => 0,
+    'canonical_variants_verified'  => 0,
+    'warning_products'             => 0,
+];
+
+/*
+ * -------------------------------------------------------------------------
+ * 4.1 Verify approved candidate count
+ * -------------------------------------------------------------------------
+ */
+
+foreach ($adoptionCandidates as $woocommerceProductId => $candidate) {
+
+    if (
+        !isset($candidate['decision'])
+        || $candidate['decision'] !== 'ADOPT'
+    ) {
+        continue;
+    }
+
+    $verificationStats['approved_candidates']++;
+}
+
+/*
+ * -------------------------------------------------------------------------
+ * 4.2 Verify every approved product has exactly one mapping
+ * -------------------------------------------------------------------------
+ */
+
+foreach ($adoptionMappings as $woocommerceProductId => $mapping) {
+
+    if (
+        !isset($adoptionCandidates[$woocommerceProductId]['decision'])
+        || $adoptionCandidates[$woocommerceProductId]['decision'] !== 'ADOPT'
+    ) {
+        continue;
+    }
+
+    $verificationStats['products_verified']++;
+
+    /*
+     * Canonical product target.
+     */
+    $canonicalProductId = isset($mapping['canonical']['supplier_product_id'])
+        ? (string) $mapping['canonical']['supplier_product_id']
+        : '';
+
+    if ($canonicalProductId === '') {
+
+        $verificationStats['products_missing_mapping']++;
+
+        $mappingVerificationErrors[] = [
+            'woocommerce_product_id' => $woocommerceProductId,
+            'reason'                 => 'APPROVED_PRODUCT_HAS_NO_CANONICAL_TARGET',
+        ];
+
+        continue;
+    }
+
+    /*
+     * A WooCommerce product may only claim one canonical product.
+     */
+    if (isset($verifiedWooCommerceProducts[$woocommerceProductId])) {
+
+        $existingCanonicalId =
+            $verifiedWooCommerceProducts[$woocommerceProductId];
+
+        if ($existingCanonicalId !== $canonicalProductId) {
+
+            $verificationStats['products_multiple_targets']++;
+
+            $mappingVerificationErrors[] = [
+                'woocommerce_product_id' => $woocommerceProductId,
+                'reason'                 => 'MULTIPLE_CANONICAL_TARGETS',
+                'canonical_targets'      => [
+                    $existingCanonicalId,
+                    $canonicalProductId,
+                ],
+            ];
+
+            continue;
+        }
+    }
+
+    $verifiedWooCommerceProducts[$woocommerceProductId] =
+        $canonicalProductId;
+
+    /*
+     * Verify canonical product identity is complete.
+     */
+    $canonicalProductCode = isset($mapping['canonical']['supplier_product_code'])
+        ? (string) $mapping['canonical']['supplier_product_code']
+        : '';
+
+    if ($canonicalProductCode === '') {
+
+        $mappingVerificationErrors[] = [
+            'woocommerce_product_id' => $woocommerceProductId,
+            'canonical_product_id'   => $canonicalProductId,
+            'reason'                 => 'CANONICAL_PRODUCT_CODE_MISSING',
+        ];
+
+        continue;
+    }
+
+    /*
+     * Detect duplicate canonical-product claims.
+     *
+     * This is deliberately recorded as a verification error rather than
+     * silently resolving the collision.
+     */
+    if (
+        isset($verifiedCanonicalProducts[$canonicalProductId])
+        && $verifiedCanonicalProducts[$canonicalProductId] !== $woocommerceProductId
+    ) {
+
+        $verificationStats['duplicate_canonical_claims']++;
+
+        $mappingVerificationErrors[] = [
+            'woocommerce_product_id'        => $woocommerceProductId,
+            'canonical_product_id'          => $canonicalProductId,
+            'existing_woocommerce_product'  =>
+                $verifiedCanonicalProducts[$canonicalProductId],
+            'reason'                        => 'DUPLICATE_CANONICAL_PRODUCT_CLAIM',
+        ];
+
+        continue;
+    }
+
+    $verifiedCanonicalProducts[$canonicalProductId] =
+        $woocommerceProductId;
+}
+
+/*
+ * -------------------------------------------------------------------------
+ * 4.3 Verify every mapped WooCommerce variation
+ * -------------------------------------------------------------------------
+ */
+
+foreach ($adoptionMappings as $woocommerceProductId => $mapping) {
+
+    if (
+        !isset($adoptionCandidates[$woocommerceProductId]['decision'])
+        || $adoptionCandidates[$woocommerceProductId]['decision'] !== 'ADOPT'
+    ) {
+        continue;
+    }
+
+    $parentCanonicalProductId =
+        isset($mapping['canonical']['supplier_product_id'])
+            ? (string) $mapping['canonical']['supplier_product_id']
+            : '';
+
+    if ($parentCanonicalProductId === '') {
+        continue;
+    }
+
+    $mappedVariants = isset($mapping['variants'])
+        && is_array($mapping['variants'])
+        ? $mapping['variants']
+        : [];
+
+    foreach ($mappedVariants as $mappedVariant) {
+
+        $variationId = isset($mappedVariant['woocommerce_variation_id'])
+            ? (int) $mappedVariant['woocommerce_variation_id']
+            : 0;
+
+        $woocommerceSku = isset($mappedVariant['woocommerce_sku'])
+            ? (string) $mappedVariant['woocommerce_sku']
+            : '';
+
+        $canonicalVariantCode =
+            isset($mappedVariant['canonical_variant_code'])
+                ? (string) $mappedVariant['canonical_variant_code']
+                : '';
+
+        if ($variationId <= 0) {
+
+            $mappingVerificationErrors[] = [
+                'woocommerce_product_id' => $woocommerceProductId,
+                'woocommerce_sku'        => $woocommerceSku,
+                'reason'                 => 'MAPPED_VARIATION_ID_MISSING',
+            ];
+
+            continue;
+        }
+
+        if ($canonicalVariantCode === '') {
+
+            $verificationStats['variations_missing_mapping']++;
+
+            $mappingVerificationErrors[] = [
+                'woocommerce_product_id'    => $woocommerceProductId,
+                'woocommerce_variation_id'  => $variationId,
+                'woocommerce_sku'           => $woocommerceSku,
+                'reason'                    => 'MAPPED_VARIATION_HAS_NO_CANONICAL_FULL_CODE',
+            ];
+
+            continue;
+        }
+
+        /*
+         * Resolve the canonical fullCode through the same nested lookup
+         * used by Step 3.
+         */
+        if (!isset($legacyCanonicalVariantLookup[$canonicalVariantCode])) {
+
+            $verificationStats['variations_missing_mapping']++;
+
+            $mappingVerificationErrors[] = [
+                'woocommerce_product_id'   => $woocommerceProductId,
+                'woocommerce_variation_id' => $variationId,
+                'woocommerce_sku'          => $woocommerceSku,
+                'canonical_variant_code'   => $canonicalVariantCode,
+                'reason'                   => 'CANONICAL_FULL_CODE_NOT_FOUND',
+            ];
+
+            continue;
+        }
+
+        $variantMatches =
+            $legacyCanonicalVariantLookup[$canonicalVariantCode];
+
+        if (
+            !is_array($variantMatches)
+            || count($variantMatches) !== 1
+        ) {
+
+            $verificationStats['variations_ambiguous']++;
+
+            $mappingVerificationErrors[] = [
+                'woocommerce_product_id'   => $woocommerceProductId,
+                'woocommerce_variation_id' => $variationId,
+                'woocommerce_sku'          => $woocommerceSku,
+                'canonical_variant_code'   => $canonicalVariantCode,
+                'reason'                   => 'CANONICAL_FULL_CODE_IS_AMBIGUOUS',
+                'candidate_count'          =>
+                    is_array($variantMatches)
+                        ? count($variantMatches)
+                        : 0,
+            ];
+
+            continue;
+        }
+
+        $variantIdentity = reset($variantMatches);
+
+        $resolvedCanonicalProductId =
+            isset($variantIdentity['supplier_product_id'])
+                ? (string) $variantIdentity['supplier_product_id']
+                : '';
+
+        if ($resolvedCanonicalProductId === '') {
+
+            $mappingVerificationErrors[] = [
+                'woocommerce_product_id'   => $woocommerceProductId,
+                'woocommerce_variation_id' => $variationId,
+                'woocommerce_sku'          => $woocommerceSku,
+                'canonical_variant_code'   => $canonicalVariantCode,
+                'reason'                   => 'CANONICAL_VARIANT_HAS_NO_PRODUCT_ID',
+            ];
+
+            continue;
+        }
+
+        $verificationStats['variations_verified']++;
+
+        $verifiedCanonicalVariants[$canonicalVariantCode] = [
+            'woocommerce_product_id'   => $woocommerceProductId,
+            'woocommerce_variation_id' => $variationId,
+            'canonical_product_id'     => $resolvedCanonicalProductId,
+        ];
+
+        /*
+         * Important:
+         *
+         * If the child resolves to a different canonical product than the
+         * deterministic parent, this is NOT automatically an error.
+         *
+         * Step 3 already classified these as legacy cross-family warnings.
+         * We preserve the evidence rather than forcing the child into the
+         * parent's canonical family.
+         */
+        if ($resolvedCanonicalProductId !== $parentCanonicalProductId) {
+
+            $warningClassification['cross_family_variant']++;
+
+            $mappingVerificationWarnings[] = [
+                'woocommerce_product_id'   => $woocommerceProductId,
+                'woocommerce_variation_id' => $variationId,
+                'woocommerce_sku'          => $woocommerceSku,
+                'parent_canonical_product' => $parentCanonicalProductId,
+                'resolved_canonical_product' =>
+                    $resolvedCanonicalProductId,
+                'canonical_variant_code'   => $canonicalVariantCode,
+                'reason'                   => 'CROSS_FAMILY_VARIANT',
+            ];
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------------------
+     * 4.4 Classify incomplete variable families.
+     *
+     * Step 3 already identified these as warnings. We verify the actual
+     * mapping rather than attempting to repair it here.
+     * ---------------------------------------------------------------------
+     */
+
+    $isVariableParent = !empty($mapping['is_variable']);
+
+    if (!$isVariableParent) {
+        continue;
+    }
+
+    $woocommerceVariationCount =
+        isset($mapping['woocommerce_variation_count'])
+            ? (int) $mapping['woocommerce_variation_count']
+            : count($mappedVariants);
+
+    $mappedVariationCount = count($mappedVariants);
+
+    if (
+        $woocommerceVariationCount > 0
+        && $mappedVariationCount < $woocommerceVariationCount
+    ) {
+
+        $warningClassification['incomplete_family']++;
+
+        $verificationStats['warning_products']++;
+
+        $mappingVerificationWarnings[] = [
+            'woocommerce_product_id'  => $woocommerceProductId,
+            'canonical_product_id'    => $parentCanonicalProductId,
+            'woocommerce_variations'  => $woocommerceVariationCount,
+            'mapped_variations'       => $mappedVariationCount,
+            'reason'                  => 'INCOMPLETE_FAMILY',
+        ];
+    }
+}
+
+/*
+ * -------------------------------------------------------------------------
+ * 4.5 Final verification counts
+ * -------------------------------------------------------------------------
+ */
+
+$verifiedProductCount =
+    count($verifiedWooCommerceProducts);
+
+$verifiedCanonicalProductCount =
+    count($verifiedCanonicalProducts);
+
+$verifiedCanonicalVariantCount =
+    count($verifiedCanonicalVariants);
+
+$verificationErrorCount =
+    count($mappingVerificationErrors);
+
+$verificationWarningCount =
+    count($mappingVerificationWarnings);
+
+$verificationPass =
+    $verificationStats['approved_candidates']
+        === $verificationStats['products_verified']
+    && $verificationStats['products_missing_mapping'] === 0
+    && $verificationStats['products_multiple_targets'] === 0
+    && $verificationStats['duplicate_canonical_claims'] === 0
+    && $verificationStats['variations_missing_mapping'] === 0
+    && $verificationStats['variations_ambiguous'] === 0
+    && $verificationErrorCount === 0;
+
+/*
+ * -------------------------------------------------------------------------
+ * 4.6 Report
+ * -------------------------------------------------------------------------
+ */
+
+echo '<pre>';
+
+echo "ADOPTION MAPPING VERIFICATION\n";
+echo "----------------------------------------------------------\n";
+
+echo "Approved adoption candidates: "
+    . $verificationStats['approved_candidates']
+    . "\n";
+
+echo "Products verified: "
+    . $verificationStats['products_verified']
+    . "\n";
+
+echo "Products missing mapping: "
+    . $verificationStats['products_missing_mapping']
+    . "\n";
+
+echo "Products with multiple targets: "
+    . $verificationStats['products_multiple_targets']
+    . "\n";
+
+echo "\n";
+
+echo "CANONICAL PRODUCT CLAIMS\n";
+echo "----------------------------------------------------------\n";
+
+echo "Verified canonical products: "
+    . $verifiedCanonicalProductCount
+    . "\n";
+
+echo "Duplicate canonical claims: "
+    . $verificationStats['duplicate_canonical_claims']
+    . "\n";
+
+echo "\n";
+
+echo "VARIATION MAPPING VERIFICATION\n";
+echo "----------------------------------------------------------\n";
+
+echo "Mapped variations verified: "
+    . $verificationStats['variations_verified']
+    . "\n";
+
+echo "Variations missing canonical mapping: "
+    . $verificationStats['variations_missing_mapping']
+    . "\n";
+
+echo "Ambiguous canonical variants: "
+    . $verificationStats['variations_ambiguous']
+    . "\n";
+
+echo "Canonical variants verified: "
+    . $verifiedCanonicalVariantCount
+    . "\n";
+
+echo "\n";
+
+echo "WARNING CLASSIFICATION\n";
+echo "----------------------------------------------------------\n";
+
+echo "Cross-family variants: "
+    . $warningClassification['cross_family_variant']
+    . "\n";
+
+echo "Missing canonical variants: "
+    . $warningClassification['missing_canonical_variant']
+    . "\n";
+
+echo "Incomplete families: "
+    . $warningClassification['incomplete_family']
+    . "\n";
+
+echo "Total verification warnings: "
+    . $verificationWarningCount
+    . "\n";
+
+echo "\n";
+
+echo "VERIFICATION ERRORS\n";
+echo "----------------------------------------------------------\n";
+
+echo "Errors: "
+    . $verificationErrorCount
+    . "\n";
+
+echo "\n";
+
+echo "STATUS: "
+    . ($verificationPass ? 'PASS' : 'FAIL')
+    . "\n";
+
+if (!empty($mappingVerificationErrors)) {
+
+    echo "\n";
+    echo "VERIFICATION ERROR SAMPLES\n";
+    echo "----------------------------------------------------------\n";
+
+    $errorSampleCount = 0;
+
+    foreach ($mappingVerificationErrors as $error) {
+
+        echo "WC Product ID: "
+            . ($error['woocommerce_product_id'] ?? 'unknown')
+            . "\n";
+
+        if (isset($error['woocommerce_variation_id'])) {
+            echo "Variation ID: "
+                . $error['woocommerce_variation_id']
+                . "\n";
+        }
+
+        if (isset($error['woocommerce_sku'])) {
+            echo "SKU: "
+                . $error['woocommerce_sku']
+                . "\n";
+        }
+
+        echo "Reason: "
+            . ($error['reason'] ?? 'unknown')
+            . "\n";
+
+        echo "\n";
+
+        $errorSampleCount++;
+
+        if ($errorSampleCount >= 10) {
+            break;
+        }
+    }
+}
+
+if (!empty($mappingVerificationWarnings)) {
+
+    echo "\n";
+    echo "VERIFICATION WARNING SAMPLES\n";
+    echo "----------------------------------------------------------\n";
+
+    $warningSampleCount = 0;
+
+    foreach ($mappingVerificationWarnings as $warning) {
+
+        echo "WC Product ID: "
+            . ($warning['woocommerce_product_id'] ?? 'unknown')
+            . "\n";
+
+        if (isset($warning['woocommerce_variation_id'])) {
+            echo "Variation ID: "
+                . $warning['woocommerce_variation_id']
+                . "\n";
+        }
+
+        if (isset($warning['woocommerce_sku'])) {
+            echo "SKU: "
+                . $warning['woocommerce_sku']
+                . "\n";
+        }
+
+        echo "Reason: "
+            . ($warning['reason'] ?? 'unknown')
+            . "\n";
+
+        if (isset($warning['canonical_variant_code'])) {
+            echo "Canonical Variant: "
+                . $warning['canonical_variant_code']
+                . "\n";
+        }
+
+        if (isset($warning['parent_canonical_product'])) {
+            echo "Parent Canonical Product: "
+                . $warning['parent_canonical_product']
+                . "\n";
+        }
+
+        if (isset($warning['resolved_canonical_product'])) {
+            echo "Resolved Canonical Product: "
+                . $warning['resolved_canonical_product']
+                . "\n";
+        }
+
+        echo "\n";
+
+        $warningSampleCount++;
+
+        if ($warningSampleCount >= 10) {
+            break;
+        }
+    }
+}
+echo '</pre>';
+
+/* -------------------------------------------------------------------------
+ * STEP 4 — ADOPTION MAPPING VERIFICATION
+ * ---------------------------------------------------------------------- */
+
+echo '<h2>ADOPTION MAPPING VERIFICATION</h2>';
+
+/*
+|--------------------------------------------------------------------------
+| Verification containers
+|--------------------------------------------------------------------------
+*/
+
+$verificationErrors   = [];
+$verificationWarnings = [];
+
+$verifiedWooCommerceProducts = [];
+$verifiedCanonicalProducts   = [];
+$verifiedCanonicalVariants   = [];
+
+/*
+|--------------------------------------------------------------------------
+| Verification counters
+|--------------------------------------------------------------------------
+*/
+
+$verificationApprovedCount       = 0;
+$verificationMappingCount        = 0;
+$verificationProductTargetCount  = 0;
+$verificationVariantCount        = 0;
+
+$missingProductTargets           = 0;
+$multipleProductTargets          = 0;
+$duplicateCanonicalClaims        = 0;
+
+$missingCanonicalVariants         = 0;
+$ambiguousCanonicalVariants       = 0;
+$duplicateCanonicalVariants       = 0;
+
+$crossFamilyVariants             = 0;
+$incompleteFamilies              = 0;
+
+$fullyVerifiedProducts            = 0;
+$fullyVerifiedVariables           = 0;
+
+/*
+|--------------------------------------------------------------------------
+| 4.1 Determine exactly how many approved candidates exist.
+|--------------------------------------------------------------------------
+|
+| This must equal Step 3:
+|
+|     Approved adoption candidates: 3710
+|
+|--------------------------------------------------------------------------
+*/
+
+foreach ($adoptionCandidates as $productId => $candidate) {
+
+    if (
+        isset($candidate['decision']) &&
+        $candidate['decision'] === 'ADOPT'
+    ) {
+        $verificationApprovedCount++;
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| 4.2 Verify every approved candidate has exactly one mapping.
+|--------------------------------------------------------------------------
+*/
+
+foreach ($adoptionCandidates as $productId => $candidate) {
+
+    if (
+        !isset($candidate['decision']) ||
+        $candidate['decision'] !== 'ADOPT'
+    ) {
+        continue;
+    }
+
+    /*
+     * Every approved product must exist in $adoptionMappings.
+     */
+    if (!isset($adoptionMappings[$productId])) {
+
+        $missingProductTargets++;
+
+        $verificationErrors[] = [
+            'product_id' => $productId,
+            'reason'     => 'APPROVED_PRODUCT_HAS_NO_ADOPTION_MAPPING',
+        ];
+
+        continue;
+    }
+
+    $mapping = $adoptionMappings[$productId];
+
+    $verificationMappingCount++;
+
+    /*
+     * ------------------------------------------------------------------
+     * Verify WooCommerce product identity.
+     * ------------------------------------------------------------------
+     */
+
+    $mappedWooCommerceProductId =
+        isset($mapping['woocommerce_product_id'])
+            ? (int) $mapping['woocommerce_product_id']
+            : 0;
+
+    if ($mappedWooCommerceProductId !== (int) $productId) {
+
+        $multipleProductTargets++;
+
+        $verificationErrors[] = [
+            'product_id' => $productId,
+            'mapped_product_id' => $mappedWooCommerceProductId,
+            'reason' => 'MAPPING_REFERENCES_DIFFERENT_WOOCOMMERCE_PRODUCT',
+        ];
+
+        continue;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * Verify canonical product target.
+     * ------------------------------------------------------------------
+     */
+
+    $canonicalProductId =
+        isset($mapping['canonical_product_id'])
+            ? trim((string) $mapping['canonical_product_id'])
+            : '';
+
+    $canonicalProductCode =
+        isset($mapping['canonical_product_code'])
+            ? trim((string) $mapping['canonical_product_code'])
+            : '';
+
+    if ($canonicalProductId === '') {
+
+        $missingProductTargets++;
+
+        $verificationErrors[] = [
+            'product_id' => $productId,
+            'reason'     => 'MAPPING_HAS_NO_CANONICAL_PRODUCT_ID',
+        ];
+
+        continue;
+    }
+
+    /*
+     * A canonical product must not be claimed by multiple
+     * WooCommerce products.
+     */
+    if (
+        isset($verifiedCanonicalProducts[$canonicalProductId]) &&
+        (int) $verifiedCanonicalProducts[$canonicalProductId] !==
+            (int) $productId
+    ) {
+
+        $duplicateCanonicalClaims++;
+
+        $verificationErrors[] = [
+            'product_id' => $productId,
+            'canonical_product_id' => $canonicalProductId,
+            'existing_product_id' =>
+                $verifiedCanonicalProducts[$canonicalProductId],
+            'reason' => 'DUPLICATE_CANONICAL_PRODUCT_CLAIM',
+        ];
+
+        continue;
+    }
+
+    $verifiedCanonicalProducts[$canonicalProductId] =
+        (int) $productId;
+
+    $verificationProductTargetCount++;
+
+    $verifiedWooCommerceProducts[(int) $productId] =
+        $canonicalProductId;
+
+    /*
+     * Canonical product code is useful for diagnostics, but the
+     * supplier product ID is the authoritative identity.
+     */
+    if ($canonicalProductCode === '') {
+
+        $verificationWarnings[] = [
+            'product_id' => $productId,
+            'canonical_product_id' => $canonicalProductId,
+            'reason' => 'CANONICAL_PRODUCT_CODE_MISSING',
+        ];
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * 4.3 Verify mapping type.
+     * ------------------------------------------------------------------
+     */
+
+    $woocommerceType =
+        isset($mapping['woocommerce_type'])
+            ? (string) $mapping['woocommerce_type']
+            : '';
+
+    /*
+     * ------------------------------------------------------------------
+     * SIMPLE PRODUCTS
+     * ------------------------------------------------------------------
+     */
+
+    if ($woocommerceType === 'simple') {
+
+        /*
+         * A simple direct-identity product does not necessarily have
+         * a canonical fullCode in its WooCommerce SKU.
+         *
+         * Only verify a variant when Step 3 actually created one.
+         */
+        if (!empty($mapping['variants'])) {
+
+            foreach ($mapping['variants'] as $variant) {
+
+                $canonicalVariantCode =
+                    isset($variant['canonical_variant_code'])
+                        ? trim((string) $variant['canonical_variant_code'])
+                        : '';
+
+                $woocommerceSku =
+                    isset($variant['woocommerce_sku'])
+                        ? trim((string) $variant['woocommerce_sku'])
+                        : '';
+
+                if ($canonicalVariantCode === '') {
+
+                    $missingCanonicalVariants++;
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'sku'        => $woocommerceSku,
+                        'reason'     => 'MAPPED_SIMPLE_VARIANT_HAS_NO_CANONICAL_FULL_CODE',
+                    ];
+
+                    continue;
+                }
+
+                /*
+                 * Resolve the canonical variant through the actual
+                 * nested lookup structure:
+                 *
+                 * fullCode => [
+                 *     supplier_product_id => identity
+                 * ]
+                 */
+                if (
+                    !isset(
+                        $legacyCanonicalVariantLookup[
+                            $canonicalVariantCode
+                        ]
+                    )
+                ) {
+
+                    $missingCanonicalVariants++;
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'sku'        => $woocommerceSku,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'reason' =>
+                            'CANONICAL_FULL_CODE_NOT_FOUND',
+                    ];
+
+                    continue;
+                }
+
+                $variantMatches =
+                    $legacyCanonicalVariantLookup[
+                        $canonicalVariantCode
+                    ];
+
+                if (
+                    !is_array($variantMatches) ||
+                    count($variantMatches) !== 1
+                ) {
+
+                    $ambiguousCanonicalVariants++;
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'sku'        => $woocommerceSku,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'candidate_count' =>
+                            is_array($variantMatches)
+                                ? count($variantMatches)
+                                : 0,
+                        'reason' =>
+                            'CANONICAL_FULL_CODE_IS_AMBIGUOUS',
+                    ];
+
+                    continue;
+                }
+
+                $variantIdentity =
+                    reset($variantMatches);
+
+                $resolvedProductId =
+                    isset($variantIdentity['supplier_product_id'])
+                        ? trim(
+                            (string)
+                            $variantIdentity['supplier_product_id']
+                        )
+                        : '';
+
+                if ($resolvedProductId !== $canonicalProductId) {
+
+                    $verificationErrors[] = [
+                        'product_id' =>
+                            $productId,
+                        'sku' =>
+                            $woocommerceSku,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'mapped_product_id' =>
+                            $canonicalProductId,
+                        'resolved_product_id' =>
+                            $resolvedProductId,
+                        'reason' =>
+                            'CANONICAL_VARIANT_RESOLVES_TO_DIFFERENT_PRODUCT',
+                    ];
+
+                    continue;
+                }
+
+                /*
+                 * Verify the same canonical fullCode is not being
+                 * represented by multiple different WooCommerce
+                 * products.
+                 */
+                if (
+                    isset(
+                        $verifiedCanonicalVariants[
+                            $canonicalVariantCode
+                        ]
+                    )
+                ) {
+
+                    $existingVariant =
+                        $verifiedCanonicalVariants[
+                            $canonicalVariantCode
+                        ];
+
+                    if (
+                        $existingVariant['woocommerce_product_id']
+                        !== (int) $productId
+                    ) {
+
+                        $duplicateCanonicalVariants++;
+
+                        $verificationErrors[] = [
+                            'product_id' =>
+                                $productId,
+                            'sku' =>
+                                $woocommerceSku,
+                            'canonical_variant_code' =>
+                                $canonicalVariantCode,
+                            'existing_product_id' =>
+                                $existingVariant[
+                                    'woocommerce_product_id'
+                                ],
+                            'reason' =>
+                                'DUPLICATE_CANONICAL_VARIANT_CLAIM',
+                        ];
+
+                        continue;
+                    }
+                }
+
+                $verifiedCanonicalVariants[
+                    $canonicalVariantCode
+                ] = [
+                    'woocommerce_product_id' =>
+                        (int) $productId,
+                    'woocommerce_variation_id' =>
+                        null,
+                ];
+
+                $verificationVariantCount++;
+            }
+        }
+
+        continue;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * VARIABLE PRODUCTS
+     * ------------------------------------------------------------------
+     */
+
+    if ($woocommerceType === 'variable') {
+
+        $woocommerceVariantCount =
+            isset($mapping['woocommerce_variant_count'])
+                ? (int) $mapping['woocommerce_variant_count']
+                : 0;
+
+        $mappedVariantCount =
+            isset($mapping['matched_variant_count'])
+                ? (int) $mapping['matched_variant_count']
+                : 0;
+
+        /*
+         * Verify the mapping count itself.
+         */
+        $actualMappingArrayCount =
+            isset($mapping['variants']) &&
+            is_array($mapping['variants'])
+                ? count($mapping['variants'])
+                : 0;
+
+        if ($actualMappingArrayCount !== $mappedVariantCount) {
+
+            $verificationErrors[] = [
+                'product_id' => $productId,
+                'expected_mapped_variants' =>
+                    $mappedVariantCount,
+                'actual_mapped_variants' =>
+                    $actualMappingArrayCount,
+                'reason' =>
+                    'MAPPED_VARIANT_COUNT_DOES_NOT_MATCH_VARIANT_ARRAY',
+            ];
+        }
+
+        /*
+         * Verify every mapped child.
+         */
+        if (
+            isset($mapping['variants']) &&
+            is_array($mapping['variants'])
+        ) {
+
+            foreach ($mapping['variants'] as $variant) {
+
+                $variationId =
+                    isset($variant['woocommerce_variation_id'])
+                        ? (int) $variant[
+                            'woocommerce_variation_id'
+                        ]
+                        : 0;
+
+                $woocommerceSku =
+                    isset($variant['woocommerce_sku'])
+                        ? trim(
+                            (string)
+                            $variant['woocommerce_sku']
+                        )
+                        : '';
+
+                $canonicalVariantCode =
+                    isset($variant['canonical_variant_code'])
+                        ? trim(
+                            (string)
+                            $variant['canonical_variant_code']
+                        )
+                        : '';
+
+                if ($variationId <= 0) {
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'sku' => $woocommerceSku,
+                        'reason' =>
+                            'MAPPED_VARIABLE_CHILD_HAS_INVALID_VARIATION_ID',
+                    ];
+
+                    continue;
+                }
+
+                if ($canonicalVariantCode === '') {
+
+                    $missingCanonicalVariants++;
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'variation_id' => $variationId,
+                        'sku' => $woocommerceSku,
+                        'reason' =>
+                            'MAPPED_VARIABLE_CHILD_HAS_NO_CANONICAL_FULL_CODE',
+                    ];
+
+                    continue;
+                }
+
+                /*
+                 * Exact canonical fullCode lookup.
+                 */
+                if (
+                    !isset(
+                        $legacyCanonicalVariantLookup[
+                            $canonicalVariantCode
+                        ]
+                    )
+                ) {
+
+                    $missingCanonicalVariants++;
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'variation_id' => $variationId,
+                        'sku' => $woocommerceSku,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'reason' =>
+                            'CANONICAL_FULL_CODE_NOT_FOUND',
+                    ];
+
+                    continue;
+                }
+
+                $variantMatches =
+                    $legacyCanonicalVariantLookup[
+                        $canonicalVariantCode
+                    ];
+
+                if (
+                    !is_array($variantMatches) ||
+                    count($variantMatches) !== 1
+                ) {
+
+                    $ambiguousCanonicalVariants++;
+
+                    $verificationErrors[] = [
+                        'product_id' => $productId,
+                        'variation_id' => $variationId,
+                        'sku' => $woocommerceSku,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'candidate_count' =>
+                            is_array($variantMatches)
+                                ? count($variantMatches)
+                                : 0,
+                        'reason' =>
+                            'CANONICAL_FULL_CODE_IS_AMBIGUOUS',
+                    ];
+
+                    continue;
+                }
+
+                $variantIdentity =
+                    reset($variantMatches);
+
+                $resolvedProductId =
+                    isset($variantIdentity['supplier_product_id'])
+                        ? trim(
+                            (string)
+                            $variantIdentity[
+                                'supplier_product_id'
+                            ]
+                        )
+                        : '';
+
+                /*
+                 * A child resolving to another canonical family is
+                 * deliberately a warning, not an error.
+                 *
+                 * This preserves the legacy MiniOrange structure
+                 * without forcing the child into the wrong family.
+                 */
+                if ($resolvedProductId !== $canonicalProductId) {
+
+                    $crossFamilyVariants++;
+
+                    $verificationWarnings[] = [
+                        'product_id' =>
+                            $productId,
+                        'variation_id' =>
+                            $variationId,
+                        'sku' =>
+                            $woocommerceSku,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'parent_canonical_product_id' =>
+                            $canonicalProductId,
+                        'resolved_canonical_product_id' =>
+                            $resolvedProductId,
+                        'reason' =>
+                            'CROSS_FAMILY_VARIANT',
+                    ];
+
+                    /*
+                     * It is still a valid canonical variant mapping.
+                     * We therefore continue verifying the fullCode
+                     * itself.
+                     */
+                }
+
+                /*
+                 * A canonical fullCode must not be claimed by two
+                 * different WooCommerce products.
+                 */
+                if (
+                    isset(
+                        $verifiedCanonicalVariants[
+                            $canonicalVariantCode
+                        ]
+                    )
+                ) {
+
+                    $existingVariant =
+                        $verifiedCanonicalVariants[
+                            $canonicalVariantCode
+                        ];
+
+                    if (
+                        $existingVariant['woocommerce_product_id']
+                        !== (int) $productId
+                    ) {
+
+                        $duplicateCanonicalVariants++;
+
+                        $verificationErrors[] = [
+                            'product_id' =>
+                                $productId,
+                            'variation_id' =>
+                                $variationId,
+                            'sku' =>
+                                $woocommerceSku,
+                            'canonical_variant_code' =>
+                                $canonicalVariantCode,
+                            'existing_product_id' =>
+                                $existingVariant[
+                                    'woocommerce_product_id'
+                                ],
+                            'reason' =>
+                                'DUPLICATE_CANONICAL_VARIANT_CLAIM',
+                        ];
+
+                        continue;
+                    }
+                }
+
+                $verifiedCanonicalVariants[
+                    $canonicalVariantCode
+                ] = [
+                    'woocommerce_product_id' =>
+                        (int) $productId,
+                    'woocommerce_variation_id' =>
+                        $variationId,
+                ];
+
+                $verificationVariantCount++;
+            }
+        }
+
+        /*
+         * ------------------------------------------------------------------
+         * Family completeness verification.
+         * ------------------------------------------------------------------
+         */
+
+        if ($woocommerceVariantCount > 0) {
+
+            if (
+                $mappedVariantCount ===
+                $woocommerceVariantCount
+            ) {
+
+                $fullyVerifiedVariables++;
+
+            } else {
+
+                $incompleteFamilies++;
+
+                $verificationWarnings[] = [
+                    'product_id' =>
+                        $productId,
+                    'canonical_product_id' =>
+                        $canonicalProductId,
+                    'woocommerce_variation_count' =>
+                        $woocommerceVariantCount,
+                    'mapped_variant_count' =>
+                        $mappedVariantCount,
+                    'reason' =>
+                        'INCOMPLETE_FAMILY',
+                ];
+            }
+        }
+
+        continue;
+    }
+
+    /*
+     * ------------------------------------------------------------------
+     * Unknown product type.
+     * ------------------------------------------------------------------
+     */
+
+    $verificationErrors[] = [
+        'product_id' => $productId,
+        'woocommerce_type' => $woocommerceType,
+        'reason' => 'UNKNOWN_WOOCOMMERCE_PRODUCT_TYPE',
+    ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| 4.4 Verify Step 3 mapping count.
+|--------------------------------------------------------------------------
+*/
+
+if (
+    $verificationApprovedCount !==
+    $verificationMappingCount
+) {
+
+    $verificationErrors[] = [
+        'reason' =>
+            'APPROVED_CANDIDATE_COUNT_DOES_NOT_MATCH_MAPPING_COUNT',
+        'approved_count' =>
+            $verificationApprovedCount,
+        'mapping_count' =>
+            $verificationMappingCount,
+    ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| 4.5 Verification status.
+|--------------------------------------------------------------------------
+*/
+
+$verificationErrorCount =
+    count($verificationErrors);
+
+$verificationWarningCount =
+    count($verificationWarnings);
+
+$verificationPass =
+    $verificationApprovedCount === 3710
+    &&
+    $verificationMappingCount === 3710
+    &&
+    $missingProductTargets === 0
+    &&
+    $multipleProductTargets === 0
+    &&
+    $duplicateCanonicalClaims === 0
+    &&
+    $missingCanonicalVariants === 0
+    &&
+    $ambiguousCanonicalVariants === 0
+    &&
+    $duplicateCanonicalVariants === 0
+    &&
+    $verificationErrorCount === 0;
+
+/*
+|--------------------------------------------------------------------------
+| REPORT
+|--------------------------------------------------------------------------
+*/
+
+echo '<pre>';
+
+echo "ADOPTION MAPPING VERIFICATION\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Approved adoption candidates: "
+    . $verificationApprovedCount
+    . "\n";
+
+echo "Adoption mappings verified: "
+    . $verificationMappingCount
+    . "\n";
+
+echo "Canonical product targets verified: "
+    . $verificationProductTargetCount
+    . "\n";
+
+echo "\n";
+
+echo "PRODUCT TARGET INTEGRITY\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Missing product targets: "
+    . $missingProductTargets
+    . "\n";
+
+echo "Multiple WooCommerce targets: "
+    . $multipleProductTargets
+    . "\n";
+
+echo "Duplicate canonical product claims: "
+    . $duplicateCanonicalClaims
+    . "\n";
+
+echo "\n";
+
+echo "VARIANT MAPPING INTEGRITY\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Canonical variants verified: "
+    . $verificationVariantCount
+    . "\n";
+
+echo "Missing canonical variants: "
+    . $missingCanonicalVariants
+    . "\n";
+
+echo "Ambiguous canonical variants: "
+    . $ambiguousCanonicalVariants
+    . "\n";
+
+echo "Duplicate canonical variant claims: "
+    . $duplicateCanonicalVariants
+    . "\n";
+
+echo "\n";
+
+echo "FAMILY VERIFICATION\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Fully verified variable families: "
+    . $fullyVerifiedVariables
+    . "\n";
+
+echo "Incomplete families: "
+    . $incompleteFamilies
+    . "\n";
+
+echo "Cross-family variants: "
+    . $crossFamilyVariants
+    . "\n";
+
+echo "\n";
+
+echo "VERIFICATION ERRORS\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Errors: "
+    . $verificationErrorCount
+    . "\n";
+
+echo "\n";
+
+echo "VERIFICATION WARNINGS\n";
+echo str_repeat('-', 58) . "\n";
+
+echo "Warnings: "
+    . $verificationWarningCount
+    . "\n";
+
+echo "\n";
+
+echo "STATUS: "
+    . ($verificationPass ? 'PASS' : 'FAIL')
+    . "\n";
+
+/*
+|--------------------------------------------------------------------------
+| Error samples
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($verificationErrors)) {
+
+    echo "\n";
+    echo "VERIFICATION ERROR SAMPLE\n";
+    echo str_repeat('-', 58) . "\n";
+
+    foreach (
+        array_slice($verificationErrors, 0, 10)
+        as $error
+    ) {
+
+        echo "WC Product ID: "
+            . ($error['product_id'] ?? 'n/a')
+            . "\n";
+
+        if (isset($error['variation_id'])) {
+            echo "Variation ID: "
+                . $error['variation_id']
+                . "\n";
+        }
+
+        if (isset($error['sku'])) {
+            echo "SKU: "
+                . $error['sku']
+                . "\n";
+        }
+
+        echo "Reason: "
+            . ($error['reason'] ?? 'n/a')
+            . "\n";
+
+        echo "\n";
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Warning samples
+|--------------------------------------------------------------------------
+*/
+
+if (!empty($verificationWarnings)) {
+
+    echo "\n";
+    echo "VERIFICATION WARNING SAMPLE\n";
+    echo str_repeat('-', 58) . "\n";
+
+    foreach (
+        array_slice($verificationWarnings, 0, 10)
+        as $warning
+    ) {
+
+        echo "WC Product ID: "
+            . ($warning['product_id'] ?? 'n/a')
+            . "\n";
+
+        if (isset($warning['variation_id'])) {
+            echo "Variation ID: "
+                . $warning['variation_id']
+                . "\n";
+        }
+
+        if (isset($warning['sku'])) {
+            echo "SKU: "
+                . $warning['sku']
+                . "\n";
+        }
+
+        echo "Reason: "
+            . ($warning['reason'] ?? 'n/a')
+            . "\n";
+
+        if (isset($warning['parent_canonical_product_id'])) {
+            echo "Parent Canonical Product: "
+                . $warning['parent_canonical_product_id']
+                . "\n";
+        }
+
+        if (isset($warning['resolved_canonical_product_id'])) {
+            echo "Resolved Canonical Product: "
+                . $warning['resolved_canonical_product_id']
+                . "\n";
+        }
+
+        if (isset($warning['woocommerce_variation_count'])) {
+            echo "WooCommerce Variations: "
+                . $warning['woocommerce_variation_count']
+                . "\n";
+        }
+
+        if (isset($warning['mapped_variant_count'])) {
+            echo "Mapped Variants: "
+                . $warning['mapped_variant_count']
+                . "\n";
+        }
+
+        echo "\n";
+    }
+}
+
+echo '</pre>';
 
 
         /*
