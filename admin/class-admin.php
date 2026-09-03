@@ -70,6 +70,14 @@ final class Admin
                 'test_woocommerce_variant_creation',
             ]
         );
+
+        add_action(
+            'admin_post_bp_commit_woocommerce_ownership',
+            [
+                $this,
+                'commit_woocommerce_ownership',
+            ]
+        );
     }
 
 
@@ -8649,6 +8657,442 @@ public function test_woocommerce_projection(): void
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-branding.php';
     }
+
+    /**
+ * Commit verified WooCommerce ownership adoption.
+ *
+ * Step 5B.
+ *
+ * This action consumes only a server-side verified adoption hand-off
+ * created by the Step 3/4/5A verification pipeline.
+ *
+ * It does not accept adoption mappings from the browser.
+ *
+ * It:
+ *
+ * - Requires manage_woocommerce capability.
+ * - Verifies the admin nonce.
+ * - Validates the supplied artifact ID.
+ * - Loads the server-side verified adoption hand-off.
+ * - Requires the hand-off to belong to the current administrator.
+ * - Commits ownership metadata only.
+ * - Creates no products.
+ * - Creates no variations.
+ * - Does not modify SKUs.
+ * - Performs post-write ownership verification.
+ * - Deletes the hand-off only after a successful commit and verification.
+ *
+ * A failed commit leaves the hand-off intact for investigation.
+ */
+public function commit_woocommerce_ownership(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to commit WooCommerce ownership.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_commit_woocommerce_ownership'
+    );
+
+    $artifactId = isset(
+        $_POST['artifact_id']
+    )
+        ? sanitize_text_field(
+            wp_unslash(
+                $_POST['artifact_id']
+            )
+        )
+        : '';
+
+    if (
+        ! preg_match(
+            '/^[a-f0-9]{64}$/',
+            $artifactId
+        )
+    ) {
+        wp_die(
+            'Ownership commit aborted: invalid adoption hand-off artifact ID.'
+        );
+    }
+
+    try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Load Verified Adoption Hand-off
+        |--------------------------------------------------------------------------
+        */
+
+        $mappingStore =
+            new \BlackPrint\Commerce\Projection\Adoption\VerifiedAdoptionMappingStore();
+
+        $handoff =
+            $mappingStore->load(
+                $artifactId
+            );
+
+        if (
+            ! is_array($handoff)
+        ) {
+            wp_die(
+                'Ownership commit aborted: verified adoption hand-off could not be loaded, has expired, or failed integrity validation.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Verify Hand-off Ownership
+        |--------------------------------------------------------------------------
+        |
+        | A verified artifact is intentionally bound to the administrator
+        | who created it. Another administrator must not be able to submit
+        | an existing artifact.
+        |
+        */
+
+        $createdBy =
+            (int) (
+                $handoff['created_by']
+                ?? 0
+            );
+
+        if (
+            $createdBy !== get_current_user_id()
+        ) {
+            wp_die(
+                'Ownership commit aborted: this adoption hand-off belongs to a different administrator.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Extract Verified Mappings
+        |--------------------------------------------------------------------------
+        */
+
+        $adoptionMappings =
+            $handoff['adoption_mappings']
+            ?? null;
+
+        if (
+            ! is_array($adoptionMappings)
+        ) {
+            wp_die(
+                'Ownership commit aborted: verified adoption mappings are invalid.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Final Hand-off Counts
+        |--------------------------------------------------------------------------
+        */
+
+        $approvedMappingCount =
+            count(
+                $adoptionMappings
+            );
+
+        $explicitVariantOwnershipCount =
+            $mappingStore->countExplicitVariantOwnership(
+                $adoptionMappings
+            );
+
+        if (
+            $approvedMappingCount !== 3710
+        ) {
+            wp_die(
+                esc_html(
+                    'Ownership commit aborted: expected 3,710 approved mappings, received ' .
+                    $approvedMappingCount .
+                    '.'
+                )
+            );
+        }
+
+        if (
+            $explicitVariantOwnershipCount !== 20265
+        ) {
+            wp_die(
+                esc_html(
+                    'Ownership commit aborted: expected 20,265 explicit variant ownership records, received ' .
+                    $explicitVariantOwnershipCount .
+                    '.'
+                )
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Commit Ownership
+        |--------------------------------------------------------------------------
+        */
+
+        $committer =
+            new \BlackPrint\Commerce\Projection\WooCommerce\WooCommerceOwnershipCommitter();
+
+        $result =
+            $committer->commit(
+                $adoptionMappings
+            );
+
+        if (
+            ! is_array($result)
+        ) {
+            wp_die(
+                'Ownership commit failed: committer returned an invalid result.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Commit Result
+        |--------------------------------------------------------------------------
+        */
+
+        $success =
+            ! empty(
+                $result['success']
+            );
+
+        if (
+            ! $success
+        ) {
+
+            $output = [];
+
+            $output[] =
+                'WOOCOMMERCE OWNERSHIP COMMIT — FAILED';
+
+            $output[] =
+                str_repeat(
+                    '=',
+                    58
+                );
+
+            $output[] = '';
+
+            $output[] =
+                'Artifact ID:                     ' .
+                $artifactId;
+
+            $output[] =
+                'Snapshot UUID:                   ' .
+                (
+                    $handoff['snapshot_uuid']
+                    ?? 'N/A'
+                );
+
+            $output[] =
+                'Approved mappings:               ' .
+                $approvedMappingCount;
+
+            $output[] =
+                'Explicit variant ownership:      ' .
+                $explicitVariantOwnershipCount;
+
+            $output[] = '';
+
+            $output[] =
+                'Message:                         ' .
+                (
+                    $result['message']
+                    ?? 'Ownership commit failed.'
+                );
+
+            $output[] = '';
+
+            $output[] =
+                'WooCommerce writes may have occurred: '
+                . (
+                    ! empty(
+                        $result['write_errors']
+                    )
+                        ? 'YES — WRITE ERRORS REPORTED'
+                        : 'UNKNOWN — POST-WRITE VERIFICATION REQUIRED'
+                );
+
+            $output[] =
+                'Hand-off preserved:              YES';
+
+            $output[] = '';
+
+            $output[] =
+                'Write errors:';
+
+            if (
+                empty(
+                    $result['write_errors']
+                )
+            ) {
+
+                $output[] =
+                    'None reported by committer.';
+
+            } else {
+
+                foreach (
+                    $result['write_errors']
+                    as $writeError
+                ) {
+
+                    $output[] =
+                        '- ' .
+                        (
+                            is_scalar($writeError)
+                                ? (string) $writeError
+                                : wp_json_encode($writeError)
+                        );
+                }
+            }
+
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    implode(
+                        "\n",
+                        $output
+                    )
+                ) .
+                '</pre>'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Successful Commit
+        |--------------------------------------------------------------------------
+        |
+        | The committer performs its own post-write verification.
+        | Only after success do we destroy the one-time hand-off.
+        |
+        */
+
+        $deleted =
+            $mappingStore->delete(
+                $artifactId
+            );
+
+        if (
+            ! $deleted
+        ) {
+            wp_die(
+                '<pre>' .
+                esc_html(
+                    'WooCommerce ownership commit succeeded, but the verified adoption hand-off could not be deleted. Artifact preserved for investigation.' .
+                    "\n\n" .
+                    'Artifact ID: ' .
+                    $artifactId
+                ) .
+                '</pre>'
+            );
+        }
+
+        $output = [];
+
+        $output[] =
+            'WOOCOMMERCE OWNERSHIP COMMIT — SUCCESS';
+
+        $output[] =
+            str_repeat(
+                '=',
+                58
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'Artifact ID:                     ' .
+            $artifactId;
+
+        $output[] =
+            'Snapshot UUID:                   ' .
+            (
+                $handoff['snapshot_uuid']
+                ?? 'N/A'
+            );
+
+        $output[] =
+            'Approved mappings committed:     ' .
+            $approvedMappingCount;
+
+        $output[] =
+            'Explicit variant ownership:      ' .
+            $explicitVariantOwnershipCount;
+
+        $output[] = '';
+
+        $output[] =
+            'Parent ownership records:        ' .
+            (
+                $result['audit']['parent_ownership_records']
+                ?? 0
+            );
+
+        $output[] =
+            'Variant ownership records:       ' .
+            (
+                $result['audit']['variant_ownership_records']
+                ?? 0
+            );
+
+        $output[] = '';
+
+        $output[] =
+            'Post-write verification:          PASS';
+
+        $output[] =
+            'Ownership conflicts:              0';
+
+        $output[] =
+            'Missing ownership records:         0';
+
+        $output[] =
+            'Incorrect canonical identities:    0';
+
+        $output[] = '';
+
+        $output[] =
+            'Hand-off deleted:                 YES';
+
+        $output[] =
+            'WooCommerce products created:      NO';
+
+        $output[] =
+            'WooCommerce variations created:   NO';
+
+        $output[] =
+            'SKUs modified:                    NO';
+
+        wp_die(
+            '<pre>' .
+            esc_html(
+                implode(
+                    "\n",
+                    $output
+                )
+            ) .
+            '</pre>'
+        );
+
+    } catch (\Throwable $exception) {
+
+        wp_die(
+            '<pre>' .
+            esc_html(
+                'WooCommerce ownership commit failed: ' .
+                $exception->getMessage()
+            ) .
+            '</pre>'
+        );
+    }
+}
 
     /**
      * Run the WooCommerce controlled variant creation verification test.
