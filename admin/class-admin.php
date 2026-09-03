@@ -7363,6 +7363,156 @@ $output[] = '';
                 'No canonical products were produced.';
         }
 
+        /*
+|--------------------------------------------------------------------------
+| Step 5B — Create Verified Adoption Hand-off
+|--------------------------------------------------------------------------
+|
+| This does not write to WooCommerce.
+|
+| The hand-off is created only when Step 4 verification and Step 5A
+| ownership dry-run both pass. The exact verified adoption mappings
+| are stored server-side and later consumed by the dedicated
+| WooCommerce ownership committer.
+|
+*/
+
+$verifiedAdoptionHandoff = null;
+
+$explicitVariantOwnershipCount = 0;
+
+if (
+    $verificationPass === true
+    && $ownershipDryRunStatus === true
+    && count($adoptionMappings) === 3710
+) {
+
+    $verifiedAdoptionMappingStore =
+        new \BlackPrint\Commerce\Projection\Adoption\VerifiedAdoptionMappingStore();
+
+    $explicitVariantOwnershipCount =
+        $verifiedAdoptionMappingStore->countExplicitVariantOwnership(
+            $adoptionMappings
+        );
+
+    if ($explicitVariantOwnershipCount === 20265) {
+
+        $verifiedAdoptionHandoff =
+            $verifiedAdoptionMappingStore->create(
+                $adoptionMappings,
+                $snapshotUuid,
+                [
+                    'pass' => $verificationPass,
+                    'approved_mapping_count' => count($adoptionMappings),
+                ],
+                [
+                    'pass' => $ownershipDryRunStatus,
+                    'parent_conflict_count' =>
+                        $ownershipParentConflictCount,
+                    'variant_conflict_count' =>
+                        $ownershipVariantConflictCount,
+                    'error_count' =>
+                        $ownershipDryRunErrorCount,
+                    'approved_mapping_count' =>
+                        $ownershipDryRunApprovedCount,
+                ]
+            );
+    } else {
+
+        $verifiedAdoptionHandoff = [
+            'success' => false,
+            'message' =>
+                'Verified adoption hand-off not created: expected 20,265 explicit variant ownership records, received ' .
+                $explicitVariantOwnershipCount .
+                '.',
+        ];
+    }
+
+} else {
+
+    $verifiedAdoptionHandoff = [
+        'success' => false,
+        'message' =>
+            'Verified adoption hand-off not created because Step 4 verification, Step 5A dry-run, or the approved mapping count did not pass.',
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Step 5B — Hand-off Report
+|--------------------------------------------------------------------------
+*/
+
+$output[] = '';
+
+$output[] =
+    'STEP 5B — VERIFIED ADOPTION HAND-OFF';
+
+$output[] =
+    str_repeat(
+        '-',
+        58
+    );
+
+if (
+    is_array($verifiedAdoptionHandoff)
+    && !empty($verifiedAdoptionHandoff['success'])
+) {
+
+    $output[] =
+        'Status:                          READY';
+
+    $output[] =
+        'Artifact ID:                     ' .
+        ($verifiedAdoptionHandoff['artifact_id'] ?? 'N/A');
+
+    $output[] =
+        'Snapshot UUID:                   ' .
+        ($verifiedAdoptionHandoff['snapshot_uuid'] ?? $snapshotUuid);
+
+    $output[] =
+        'Mapping hash:                    ' .
+        ($verifiedAdoptionHandoff['mapping_hash'] ?? 'N/A');
+
+    $output[] =
+        'Approved mappings:               ' .
+        ($verifiedAdoptionHandoff['approved_mapping_count'] ?? 0);
+
+    $output[] =
+        'Explicit variant ownership:      ' .
+        ($verifiedAdoptionHandoff['explicit_variant_ownership_count'] ?? 0);
+
+    $output[] =
+        'Expires at:                      ' .
+        (
+            isset($verifiedAdoptionHandoff['expires_at'])
+                ? wp_date(
+                    'Y-m-d H:i:s',
+                    (int) $verifiedAdoptionHandoff['expires_at']
+                )
+                : 'N/A'
+        );
+
+    $output[] =
+        'WooCommerce writes performed:    NO';
+
+} else {
+
+    $output[] =
+        'Status:                          NOT READY';
+
+    $output[] =
+        'Reason:                          ' .
+        (
+            is_array($verifiedAdoptionHandoff)
+            && isset($verifiedAdoptionHandoff['message'])
+                ? $verifiedAdoptionHandoff['message']
+                : 'Unknown hand-off creation failure.'
+        );
+}
+
+$output[] = '';
 
         /*
         |--------------------------------------------------------------------------

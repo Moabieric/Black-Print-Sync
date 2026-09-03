@@ -26,4 +26,10 @@ require_once BP_COMMERCE_PATH
 require_once BP_COMMERCE_PATH
     . 'projection/woocommerce/WooCommerceProjectionExecutor.php';
 
+require_once BP_COMMERCE_PATH
+    . 'projection/adoption/VerifiedAdoptionMappingStore.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/woocommerce/WooCommerceOwnershipCommitter.php';
+
 
