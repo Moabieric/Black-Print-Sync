@@ -227,6 +227,27 @@ final class Admin
             ]
         );
 
+        /*
+        |--------------------------------------------------------------------------
+        | WooCommerce Adoption
+        |--------------------------------------------------------------------------
+        |
+        | Controlled Step 5B hand-off for committing verified BlackPrint
+        | ownership metadata to existing WooCommerce products and variations.
+        |
+        */
+
+        add_submenu_page(
+            'blackprint-commerce',
+            'WooCommerce Adoption',
+            'WooCommerce Adoption',
+            'manage_woocommerce',
+            'blackprint-woocommerce-adoption',
+            [
+                $this,
+                'woocommerce_adoption',
+            ]
+        );
 
         /*
         |--------------------------------------------------------------------------
@@ -285,6 +306,58 @@ final class Admin
         );
     }
 
+/**
+ * Render the controlled WooCommerce adoption page.
+ *
+ * Step 5B is the controlled ownership hand-off from the verified
+ * adoption mapping artifact into existing WooCommerce products
+ * and variations.
+ *
+ * Rendering this page performs no WooCommerce writes.
+ * The actual write occurs only through the dedicated admin-post
+ * commit handler after explicit user submission.
+ */
+public function woocommerce_adoption(): void
+{
+    $artifactId = '';
+
+    $artifact = null;
+
+    $artifactError = '';
+
+    try {
+
+        $store =
+            new \BlackPrint\Commerce\Projection\Adoption\VerifiedAdoptionMappingStore();
+
+        $artifact =
+            $store->loadLatestVerified();
+
+        if (
+            ! is_array($artifact)
+            || empty($artifact['artifact_id'])
+        ) {
+            throw new \RuntimeException(
+                'No valid Step 5B verified adoption artifact is available.'
+            );
+        }
+
+        $artifactId =
+            (string) $artifact['artifact_id'];
+
+    } catch (\Throwable $exception) {
+
+        $artifact = null;
+
+        $artifactId = '';
+
+        $artifactError =
+            $exception->getMessage();
+    }
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/woocommerce-adoption.php';
+}
 
     /**
      * Render the main BlackPrint Commerce dashboard.

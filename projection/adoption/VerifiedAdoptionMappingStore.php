@@ -199,6 +199,115 @@ final class VerifiedAdoptionMappingStore
         return $payload;
     }
 
+/**
+ * Load the newest valid verified adoption hand-off.
+ *
+ * Only artifacts that pass all Step 5B hand-off gates are returned.
+ *
+ * @return array<string, mixed>|null
+ */
+public function loadLatestVerified(): ?array
+{
+    global $wpdb;
+
+
+    $optionNames = $wpdb->get_col(
+        $wpdb->prepare(
+            "
+            SELECT option_name
+            FROM {$wpdb->options}
+            WHERE option_name LIKE %s
+            ORDER BY option_id DESC
+            LIMIT 20
+            ",
+            $wpdb->esc_like(
+                self::OPTION_PREFIX
+            ) . '%'
+        )
+    );
+
+
+    if (
+        ! is_array($optionNames)
+        || $optionNames === []
+    ) {
+        return null;
+    }
+
+
+    foreach ($optionNames as $optionName) {
+
+        $candidateId = substr(
+            (string) $optionName,
+            strlen(self::OPTION_PREFIX)
+        );
+
+
+        if (
+            ! $this->isValidArtifactId(
+                $candidateId
+            )
+        ) {
+            continue;
+        }
+
+
+        $candidate = $this->load(
+            $candidateId
+        );
+
+
+        if (
+            ! is_array($candidate)
+            || empty($candidate['artifact_id'])
+        ) {
+            continue;
+        }
+
+
+        if (
+            ! isset($candidate['verification']['pass'])
+            || $candidate['verification']['pass'] !== true
+        ) {
+            continue;
+        }
+
+
+        if (
+            ! isset($candidate['ownership_dry_run']['pass'])
+            || $candidate['ownership_dry_run']['pass'] !== true
+        ) {
+            continue;
+        }
+
+
+        if (
+            (int) (
+                $candidate['approved_mapping_count']
+                ?? 0
+            ) !== self::EXPECTED_APPROVED_MAPPINGS
+        ) {
+            continue;
+        }
+
+
+        if (
+            (int) (
+                $candidate['explicit_variant_ownership_count']
+                ?? 0
+            ) !== self::EXPECTED_VARIANT_OWNERSHIP
+        ) {
+            continue;
+        }
+
+
+        return $candidate;
+    }
+
+
+    return null;
+}
+
     /**
      * Delete a verified adoption hand-off.
      */
