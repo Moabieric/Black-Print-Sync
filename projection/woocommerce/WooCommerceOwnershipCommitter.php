@@ -385,12 +385,13 @@ final class WooCommerceOwnershipCommitter
                 $productId,
                 $canonicalProductId,
                 $canonicalProductCode
-            ) {
+            )
+        ) {
             return [
                 'success' => true,
                 'status'  => 'already_managed',
             ];
-        }
+        
 
         return $this->writeParentOwnership(
             $productId,
