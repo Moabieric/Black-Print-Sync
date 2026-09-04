@@ -386,8 +386,7 @@ final class WooCommerceOwnershipCommitter
                 $canonicalProductId,
                 $canonicalProductCode
             )
-        ) {
-            return [
+        ) return [
                 'success' => true,
                 'status'  => 'already_managed',
             ];
