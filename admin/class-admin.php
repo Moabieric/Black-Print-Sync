@@ -8981,11 +8981,18 @@ public function commit_woocommerce_ownership(): void
             $output[] =
                 'WooCommerce writes may have occurred: '
                 . (
-                    ! empty(
-                        $result['write_errors']
+                    (
+                        ($result['phase'] ?? null)
+                        === 'OWNERSHIP_SAFETY_CHECK'
                     )
-                        ? 'YES — WRITE ERRORS REPORTED'
-                        : 'UNKNOWN — POST-WRITE VERIFICATION REQUIRED'
+                        ? 'NO — PRE-WRITE SAFETY ABORT'
+                        : (
+                            ! empty(
+                                $result['write_errors']
+                            )
+                                ? 'YES — WRITE ERRORS REPORTED'
+                                : 'UNKNOWN — POST-WRITE VERIFICATION REQUIRED'
+                        )
                 );
 
             $output[] =
