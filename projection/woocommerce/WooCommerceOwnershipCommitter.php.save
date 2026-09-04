@@ -1,10 +1,12 @@
 <?php
 
+
+
+
+
 declare(strict_types=1);
 
-namespace BlackPrint\Commerce\Projection\WooCommerce;
-
-defined('ABSPATH') || exit;
+namespace BlackPrint\Commerce\Projection\WooCommercqdefined('ABSPATH') || exit;
 
 /**
  * WooCommerce Ownership Committer.
@@ -314,168 +316,6 @@ final class WooCommerceOwnershipCommitter
             'write_errors' => $writeErrors,
             'post_write_verification' => $postWriteVerification,
         ];
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Controlled single-record batch operations.
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Commit ownership for one approved parent mapping.
-     *
-     * This is the batch-safe entry point for Step 5B.
-     *
-     * The ownership rules remain centralized in this class.
-     * The batch committer is responsible only for orchestration,
-     * batching and resumable state.
-     *
-     * @param array<string, mixed> $mapping
-     *
-     * @return array<string, mixed>
-     *
-     * @throws \RuntimeException
-     */
-    public function commitParentMapping(
-        array $mapping
-    ): array {
-        $productId =
-            isset($mapping['woocommerce_product_id'])
-                ? (int) $mapping['woocommerce_product_id']
-                : 0;
-
-        $canonicalProductId =
-            isset($mapping['canonical_product_id'])
-                ? trim(
-                    (string) $mapping['canonical_product_id']
-                )
-                : '';
-
-        $canonicalProductCode =
-            isset($mapping['canonical_product_code'])
-                ? trim(
-                    (string) $mapping['canonical_product_code']
-                )
-                : '';
-
-        if (
-            $productId <= 0
-            || $canonicalProductId === ''
-            || $canonicalProductCode === ''
-        ) {
-            throw new \RuntimeException(
-                'Invalid parent ownership mapping encountered.'
-            );
-        }
-
-        if (
-            ! get_post($productId)
-        ) {
-            throw new \RuntimeException(
-                sprintf(
-                    'WooCommerce parent product %d does not exist.',
-                    $productId
-                )
-            );
-        }
-
-        if (
-            $this->hasExactParentOwnership(
-                $productId,
-                $canonicalProductId,
-                $canonicalProductCode
-            ) {
-            return [
-                'success' => true,
-                'status'  => 'already_managed',
-            ];
-        }
-
-        return $this->writeParentOwnership(
-            $productId,
-            $canonicalProductId,
-            $canonicalProductCode
-        );
-    }
-
-    /**
-     * Commit ownership for one explicitly mapped variation.
-     *
-     * This is the batch-safe entry point for Step 5B.
-     *
-     * @param array<string, mixed> $mapping
-     *
-     * @return array<string, mixed>
-     *
-     * @throws \RuntimeException
-     */
-    public function commitVariantMapping(
-        array $mapping
-    ): array {
-        $variationId =
-            isset($mapping['woocommerce_variation_id'])
-                ? (int) $mapping['woocommerce_variation_id']
-                : 0;
-
-        $canonicalVariantCode =
-            isset($mapping['canonical_variant_code'])
-                ? trim(
-                    (string) $mapping['canonical_variant_code']
-                )
-                : '';
-
-        if (
-            $variationId <= 0
-            || $canonicalVariantCode === ''
-        ) {
-            throw new \RuntimeException(
-                'Invalid variation ownership mapping encountered.'
-            );
-        }
-
-        if (
-            ! get_post($variationId)
-        ) {
-            throw new \RuntimeException(
-                sprintf(
-                    'WooCommerce variation %d does not exist.',
-                    $variationId
-                )
-            );
-        }
-
-        $post =
-            get_post($variationId);
-
-        if (
-            ! $post
-            || $post->post_type !== 'product_variation'
-        ) {
-            throw new \RuntimeException(
-                sprintf(
-                    'WooCommerce object %d is not a product variation.',
-                    $variationId
-                )
-            );
-        }
-
-        if (
-            $this->hasExactVariantOwnership(
-                $variationId,
-                $canonicalVariantCode
-            )
-        ) {
-            return [
-                'success' => true,
-                'status'  => 'already_managed',
-            ];
-        }
-
-        return $this->writeVariantOwnership(
-            $variationId,
-            $canonicalVariantCode
-        );
     }
 
     /*
