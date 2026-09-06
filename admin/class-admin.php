@@ -9000,6 +9000,80 @@ public function commit_woocommerce_ownership(): void
 
 
             $output[] =
+                'Ownership conflicts:';
+
+            $ownership =
+                isset($result['ownership'])
+                && is_array($result['ownership'])
+                    ? $result['ownership']
+                    : [];
+
+            $parentConflicts =
+                isset($ownership['parent_conflict_details'])
+                && is_array($ownership['parent_conflict_details'])
+                    ? $ownership['parent_conflict_details']
+                    : [];
+
+            $variantConflicts =
+                isset($ownership['variant_conflict_details'])
+                && is_array($ownership['variant_conflict_details'])
+                    ? $ownership['variant_conflict_details']
+                    : [];
+
+            $output[] =
+                'Parent conflicts:                 ' .
+                count($parentConflicts);
+
+            $output[] =
+                'Variant conflicts:                ' .
+                count($variantConflicts);
+
+            if (!empty($parentConflicts)) {
+
+                $output[] =
+                    '';
+
+                $output[] =
+                    'Parent conflict details:';
+
+                foreach (
+                    $parentConflicts
+                    as $conflict
+                ) {
+
+                    $output[] =
+                        '- ' .
+                        wp_json_encode(
+                            $conflict
+                        );
+                }
+            }
+
+            if (!empty($variantConflicts)) {
+
+                $output[] =
+                    '';
+
+                $output[] =
+                    'Variant conflict details:';
+
+                foreach (
+                    $variantConflicts
+                    as $conflict
+                ) {
+
+                    $output[] =
+                        '- ' .
+                        wp_json_encode(
+                            $conflict
+                        );
+                }
+            }
+
+            $output[] =
+                '';
+
+                $output[] =
                 'Write errors:';
 
             if (
