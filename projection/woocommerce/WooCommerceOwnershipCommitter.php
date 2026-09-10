@@ -1212,6 +1212,65 @@ private function inspectExistingOwnership(
     ];
 }
 
+/*
+|--------------------------------------------------------------------------
+| Parent ownership write.
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * @return array<string, mixed>
+ */
+private function writeParentOwnership(
+    int $productId,
+    string $canonicalProductId,
+    string $canonicalProductCode
+): array {
+    $updates = [
+        '_blackprint_managed' => self::MANAGED,
+        '_blackprint_supplier' => self::SUPPLIER,
+        '_blackprint_product_id' => $canonicalProductId,
+        '_blackprint_product_code' => $canonicalProductCode,
+    ];
+
+    foreach ($updates as $key => $value) {
+
+        $result = update_post_meta(
+            $productId,
+            $key,
+            $value
+        );
+
+        if ($result === false) {
+            return [
+                'success' => false,
+                'error' => sprintf(
+                    'Failed writing parent metadata key %s.',
+                    $key
+                ),
+            ];
+        }
+    }
+
+    if (
+        !$this->hasExactParentOwnership(
+            $productId,
+            $canonicalProductId,
+            $canonicalProductCode
+        )
+    ) {
+        return [
+            'success' => false,
+            'error' =>
+                'Parent ownership post-write verification failed.',
+        ];
+    }
+
+    return [
+        'success' => true,
+    ];
+}
+
     /*
     |--------------------------------------------------------------------------
     | Variant ownership write.
