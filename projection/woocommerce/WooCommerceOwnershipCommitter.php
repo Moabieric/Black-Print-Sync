@@ -156,6 +156,10 @@ final class WooCommerceOwnershipCommitter
      * No WooCommerce mutation occurs unless the complete mapping set
      * passes the final pre-write safety validation.
      *
+     * Per-record commit methods additionally perform their own immediate
+     * ownership safety check before each write. This protects resumable
+     * execution from ownership changes occurring after global preflight.
+     *
      * @param array<int|string, array<string, mixed>> $adoptionMappings
      *
      * @return array<string, mixed>
@@ -175,10 +179,11 @@ final class WooCommerceOwnershipCommitter
                 'success' => false,
                 'status'  => 'ABORTED',
                 'phase'   => 'PRE_WRITE_VALIDATION',
-                'message' => 'Step 5B aborted. Final ownership safety validation failed.',
+                'message' =>
+                    'Step 5B aborted. Final ownership safety validation failed.',
                 'validation' => $validation,
                 'audit' => [
-                    'parents_written'  => 0,
+                    'parents_written' => 0,
                     'variants_written' => 0,
                     'parents_already_managed' => 0,
                     'variants_already_managed' => 0,
@@ -197,11 +202,11 @@ final class WooCommerceOwnershipCommitter
          * We intentionally perform this complete conflict scan before
          * mutating anything.
          *
-         *Therefore a detected ownership conflict cannot result in a partially
-            committed adoption.
-
-            Database write failures occurring after the safety checks are handled
-            separately and may require post-write recovery.
+         * Therefore a detected ownership conflict cannot result in a
+         * partially committed adoption.
+         *
+         * The per-record commit methods perform the same safety
+         * classification again immediately before each write.
          */
 
         $ownershipState = $this->inspectExistingOwnership(
@@ -213,24 +218,29 @@ final class WooCommerceOwnershipCommitter
                 'success' => false,
                 'status'  => 'ABORTED',
                 'phase'   => 'OWNERSHIP_SAFETY_CHECK',
-                'message' => 'Step 5B aborted. Existing BlackPrint ownership conflicts were detected. No ownership was written.',
+                'message' =>
+                    'Step 5B aborted. Existing BlackPrint ownership conflicts were detected. No ownership was written.',
                 'validation' => $validation,
                 'ownership' => $ownershipState,
                 'audit' => [
-                    'parents_written'  => 0,
+                    'parents_written' => 0,
                     'variants_written' => 0,
-                    'parents_already_managed' => $ownershipState[
-                        'parents_already_managed'
-                    ],
-                    'variants_already_managed' => $ownershipState[
-                        'variants_already_managed'
-                    ],
-                    'parent_conflicts' => $ownershipState[
-                        'parent_conflicts'
-                    ],
-                    'variant_conflicts' => $ownershipState[
-                        'variant_conflicts'
-                    ],
+                    'parents_already_managed' =>
+                        $ownershipState[
+                            'parents_already_managed'
+                        ],
+                    'variants_already_managed' =>
+                        $ownershipState[
+                            'variants_already_managed'
+                        ],
+                    'parent_conflicts' =>
+                        $ownershipState[
+                            'parent_conflicts'
+                        ],
+                    'variant_conflicts' =>
+                        $ownershipState[
+                            'variant_conflicts'
+                        ],
                     'write_errors' => 0,
                 ],
             ];
@@ -240,6 +250,9 @@ final class WooCommerceOwnershipCommitter
          * --------------------------------------------------------------
          * Phase 3 — Write ownership.
          * --------------------------------------------------------------
+         *
+         * All writes go through the same per-record safety methods used
+         * by the resumable batch committer.
          */
 
         $parentsWritten = 0;
@@ -248,53 +261,63 @@ final class WooCommerceOwnershipCommitter
         $parentsAlreadyManaged = 0;
         $variantsAlreadyManaged = 0;
 
+        $parentConflicts = 0;
+        $variantConflicts = 0;
+
         $writeErrors = [];
 
         foreach ($adoptionMappings as $productId => $mapping) {
 
             $productId = (int) $productId;
 
-            $canonicalProductId =
-                (string) $mapping['canonical_product_id'];
-
-            $canonicalProductCode =
-                (string) $mapping['canonical_product_code'];
-
-            /*
-             * Parent ownership.
-             */
-
-            $existingParentOwnership =
-                $this->hasExactParentOwnership(
-                    $productId,
-                    $canonicalProductId,
-                    $canonicalProductCode
+            $parentWriteResult =
+                $this->commitParentMapping(
+                    $mapping
                 );
 
-            if ($existingParentOwnership) {
+            if (
+                !is_array($parentWriteResult)
+                || !isset($parentWriteResult['success'])
+            ) {
+                $writeErrors[] = [
+                    'product_id' => $productId,
+                    'scope' => 'parent',
+                    'error' =>
+                        'Parent ownership committer returned an invalid result.',
+                ];
 
-                $parentsAlreadyManaged++;
+                continue;
+            }
 
-            } else {
-
-                $parentWriteResult =
-                    $this->writeParentOwnership(
-                        $productId,
-                        $canonicalProductId,
-                        $canonicalProductCode
-                    );
-
-                if (!$parentWriteResult['success']) {
-
-                    $writeErrors[] = [
-                        'product_id' => $productId,
-                        'scope'     => 'parent',
-                        'error'     => $parentWriteResult['error'],
-                    ];
-
-                    continue;
+            if (
+                ($parentWriteResult['success'] ?? false)
+                !== true
+            ) {
+                if (
+                    ($parentWriteResult['status'] ?? '')
+                    === 'ownership_conflict'
+                ) {
+                    $parentConflicts++;
                 }
 
+                $writeErrors[] = [
+                    'product_id' => $productId,
+                    'scope' => 'parent',
+                    'error' => (string) (
+                        $parentWriteResult['error']
+                        ?? 'Parent ownership write failed.'
+                    ),
+                ];
+
+                continue;
+            }
+
+            if (
+                ($parentWriteResult['status'] ?? '')
+                === 'already_managed'
+            ) {
+                $parentsAlreadyManaged++;
+            } else {
                 $parentsWritten++;
             }
 
@@ -309,6 +332,10 @@ final class WooCommerceOwnershipCommitter
                     : [];
 
             foreach ($variants as $variant) {
+
+                if (!is_array($variant)) {
+                    continue;
+                }
 
                 $variationId =
                     isset($variant['woocommerce_variation_id'])
@@ -329,45 +356,58 @@ final class WooCommerceOwnershipCommitter
                     continue;
                 }
 
-                $canonicalVariantCode =
-                    isset($variant['canonical_variant_code'])
-                        ? trim(
-                            (string)
-                            $variant['canonical_variant_code']
-                        )
-                        : '';
-
-                if (
-                    $this->hasExactVariantOwnership(
-                        $variationId,
-                        $canonicalVariantCode
-                    )
-                ) {
-
-                    $variantsAlreadyManaged++;
-
-                    continue;
-                }
-
                 $variantWriteResult =
-                    $this->writeVariantOwnership(
-                        $variationId,
-                        $canonicalVariantCode
+                    $this->commitVariantMapping(
+                        $variant
                     );
 
-                if (!$variantWriteResult['success']) {
-
+                if (
+                    !is_array($variantWriteResult)
+                    || !isset($variantWriteResult['success'])
+                ) {
                     $writeErrors[] = [
-                        'product_id'   => $productId,
+                        'product_id' => $productId,
                         'variation_id' => $variationId,
-                        'scope'        => 'variant',
-                        'error'        => $variantWriteResult['error'],
+                        'scope' => 'variant',
+                        'error' =>
+                            'Variant ownership committer returned an invalid result.',
                     ];
 
                     continue;
                 }
 
-                $variantsWritten++;
+                if (
+                    ($variantWriteResult['success'] ?? false)
+                    !== true
+                ) {
+                    if (
+                        ($variantWriteResult['status'] ?? '')
+                        === 'ownership_conflict'
+                    ) {
+                        $variantConflicts++;
+                    }
+
+                    $writeErrors[] = [
+                        'product_id' => $productId,
+                        'variation_id' => $variationId,
+                        'scope' => 'variant',
+                        'error' => (string) (
+                            $variantWriteResult['error']
+                            ?? 'Variant ownership write failed.'
+                        ),
+                    ];
+
+                    continue;
+                }
+
+                if (
+                    ($variantWriteResult['status'] ?? '')
+                    === 'already_managed'
+                ) {
+                    $variantsAlreadyManaged++;
+                } else {
+                    $variantsWritten++;
+                }
             }
         }
 
@@ -396,16 +436,25 @@ final class WooCommerceOwnershipCommitter
             'validation' => $validation,
             'ownership' => $ownershipState,
             'audit' => [
-                'parents_written' => $parentsWritten,
-                'variants_written' => $variantsWritten,
-                'parents_already_managed' => $parentsAlreadyManaged,
-                'variants_already_managed' => $variantsAlreadyManaged,
-                'parent_conflicts' => 0,
-                'variant_conflicts' => 0,
-                'write_errors' => count($writeErrors),
+                'parents_written' =>
+                    $parentsWritten,
+                'variants_written' =>
+                    $variantsWritten,
+                'parents_already_managed' =>
+                    $parentsAlreadyManaged,
+                'variants_already_managed' =>
+                    $variantsAlreadyManaged,
+                'parent_conflicts' =>
+                    $parentConflicts,
+                'variant_conflicts' =>
+                    $variantConflicts,
+                'write_errors' =>
+                    count($writeErrors),
             ],
-            'write_errors' => $writeErrors,
-            'post_write_verification' => $postWriteVerification,
+            'write_errors' =>
+                $writeErrors,
+            'post_write_verification' =>
+                $postWriteVerification,
         ];
     }
 
@@ -420,9 +469,14 @@ final class WooCommerceOwnershipCommitter
      *
      * This is the batch-safe entry point for Step 5B.
      *
-     * The ownership rules remain centralized in this class.
-     * The batch committer is responsible only for orchestration,
-     * batching and resumable state.
+     * Stage 2B safety:
+     *
+     * - validates the mapping;
+     * - validates the WooCommerce record;
+     * - detects exact existing ownership;
+     * - detects repairable partial ownership;
+     * - detects conflicting ownership;
+     * - performs no write when a conflict exists.
      *
      * @param array<string, mixed> $mapping
      *
@@ -462,9 +516,9 @@ final class WooCommerceOwnershipCommitter
             );
         }
 
-        if (
-            ! get_post($productId)
-        ) {
+        $post = get_post($productId);
+
+        if (!$post) {
             throw new \RuntimeException(
                 sprintf(
                     'WooCommerce parent product %d does not exist.',
@@ -473,17 +527,53 @@ final class WooCommerceOwnershipCommitter
             );
         }
 
-        if (
-            $this->hasExactParentOwnership(
+        if ($post->post_type !== 'product') {
+            throw new \RuntimeException(
+                sprintf(
+                    'WooCommerce object %d is not a product.',
+                    $productId
+                )
+            );
+        }
+
+        $ownership =
+            $this->inspectParentOwnershipRecord(
                 $productId,
                 $canonicalProductId,
                 $canonicalProductCode
-            )
-        ) return [
+            );
+
+        if (
+            $ownership['status']
+            === 'already_managed'
+        ) {
+            return [
                 'success' => true,
-                'status'  => 'already_managed',
+                'status' => 'already_managed',
             ];
-        
+        }
+
+        if (
+            $ownership['status']
+            === 'ownership_conflict'
+        ) {
+            return [
+                'success' => false,
+                'status' => 'ownership_conflict',
+                'error' => sprintf(
+                    'Parent ownership conflict detected for WooCommerce product %d. No ownership was written.',
+                    $productId
+                ),
+                'ownership' => $ownership,
+            ];
+        }
+
+        /*
+         * NEW or REPAIRABLE_PARTIAL_OWNERSHIP.
+         *
+         * Both states are safe to complete because every existing
+         * non-empty ownership value agrees with the verified mapping.
+         */
 
         return $this->writeParentOwnership(
             $productId,
@@ -496,6 +586,15 @@ final class WooCommerceOwnershipCommitter
      * Commit ownership for one explicitly mapped variation.
      *
      * This is the batch-safe entry point for Step 5B.
+     *
+     * Stage 2B safety:
+     *
+     * - validates the mapping;
+     * - validates the WooCommerce variation;
+     * - detects exact existing ownership;
+     * - detects repairable partial ownership;
+     * - detects conflicting ownership;
+     * - performs no write when a conflict exists.
      *
      * @param array<string, mixed> $mapping
      *
@@ -527,9 +626,9 @@ final class WooCommerceOwnershipCommitter
             );
         }
 
-        if (
-            ! get_post($variationId)
-        ) {
+        $post = get_post($variationId);
+
+        if (!$post) {
             throw new \RuntimeException(
                 sprintf(
                     'WooCommerce variation %d does not exist.',
@@ -538,12 +637,8 @@ final class WooCommerceOwnershipCommitter
             );
         }
 
-        $post =
-            get_post($variationId);
-
         if (
-            ! $post
-            || $post->post_type !== 'product_variation'
+            $post->post_type !== 'product_variation'
         ) {
             throw new \RuntimeException(
                 sprintf(
@@ -553,17 +648,43 @@ final class WooCommerceOwnershipCommitter
             );
         }
 
-        if (
-            $this->hasExactVariantOwnership(
+        $ownership =
+            $this->inspectVariantOwnershipRecord(
                 $variationId,
                 $canonicalVariantCode
-            )
+            );
+
+        if (
+            $ownership['status']
+            === 'already_managed'
         ) {
             return [
                 'success' => true,
-                'status'  => 'already_managed',
+                'status' => 'already_managed',
             ];
         }
+
+        if (
+            $ownership['status']
+            === 'ownership_conflict'
+        ) {
+            return [
+                'success' => false,
+                'status' => 'ownership_conflict',
+                'error' => sprintf(
+                    'Variant ownership conflict detected for WooCommerce variation %d. No ownership was written.',
+                    $variationId
+                ),
+                'ownership' => $ownership,
+            ];
+        }
+
+        /*
+         * NEW or REPAIRABLE_PARTIAL_OWNERSHIP.
+         *
+         * Both states are safe to complete because every existing
+         * non-empty ownership value agrees with the verified mapping.
+         */
 
         return $this->writeVariantOwnership(
             $variationId,
@@ -582,8 +703,9 @@ final class WooCommerceOwnershipCommitter
      *
      * @return array<string, mixed>
      */
-    private function validateMappings(array $adoptionMappings): array
-    {
+    private function validateMappings(
+        array $adoptionMappings
+    ): array {
         $errors = [];
 
         if (
@@ -592,8 +714,10 @@ final class WooCommerceOwnershipCommitter
         ) {
             $errors[] = [
                 'reason' => 'INVALID_APPROVED_MAPPING_COUNT',
-                'expected' => self::EXPECTED_APPROVED_MAPPINGS,
-                'actual' => count($adoptionMappings),
+                'expected' =>
+                    self::EXPECTED_APPROVED_MAPPINGS,
+                'actual' =>
+                    count($adoptionMappings),
             ];
         }
 
@@ -610,7 +734,8 @@ final class WooCommerceOwnershipCommitter
             if ($productId <= 0) {
                 $errors[] = [
                     'product_id' => $productId,
-                    'reason' => 'INVALID_WOOCOMMERCE_PRODUCT_ID',
+                    'reason' =>
+                        'INVALID_WOOCOMMERCE_PRODUCT_ID',
                 ];
 
                 continue;
@@ -622,7 +747,8 @@ final class WooCommerceOwnershipCommitter
             ) {
                 $errors[] = [
                     'product_id' => $productId,
-                    'reason' => 'MAPPING_IS_NOT_APPROVED_ADOPT',
+                    'reason' =>
+                        'MAPPING_IS_NOT_APPROVED_ADOPT',
                 ];
 
                 continue;
@@ -638,7 +764,8 @@ final class WooCommerceOwnershipCommitter
             if ($mappedProductId !== $productId) {
                 $errors[] = [
                     'product_id' => $productId,
-                    'mapped_product_id' => $mappedProductId,
+                    'mapped_product_id' =>
+                        $mappedProductId,
                     'reason' =>
                         'MAPPING_REFERENCES_DIFFERENT_WOOCOMMERCE_PRODUCT',
                 ];
@@ -657,16 +784,24 @@ final class WooCommerceOwnershipCommitter
             if ($canonicalProductId === '') {
                 $errors[] = [
                     'product_id' => $productId,
-                    'reason' => 'MISSING_CANONICAL_PRODUCT_ID',
+                    'reason' =>
+                        'MISSING_CANONICAL_PRODUCT_ID',
                 ];
 
                 continue;
             }
 
-            if (isset($canonicalProducts[$canonicalProductId])) {
+            if (
+                isset(
+                    $canonicalProducts[
+                        $canonicalProductId
+                    ]
+                )
+            ) {
                 $errors[] = [
                     'product_id' => $productId,
-                    'canonical_product_id' => $canonicalProductId,
+                    'canonical_product_id' =>
+                        $canonicalProductId,
                     'existing_product_id' =>
                         $canonicalProducts[
                             $canonicalProductId
@@ -678,8 +813,9 @@ final class WooCommerceOwnershipCommitter
                 continue;
             }
 
-            $canonicalProducts[$canonicalProductId] =
-                $productId;
+            $canonicalProducts[
+                $canonicalProductId
+            ] = $productId;
 
             $parentCount++;
 
@@ -690,7 +826,8 @@ final class WooCommerceOwnershipCommitter
             if (!get_post($productId)) {
                 $errors[] = [
                     'product_id' => $productId,
-                    'reason' => 'WOOCOMMERCE_PARENT_DOES_NOT_EXIST',
+                    'reason' =>
+                        'WOOCOMMERCE_PARENT_DOES_NOT_EXIST',
                 ];
 
                 continue;
@@ -707,6 +844,16 @@ final class WooCommerceOwnershipCommitter
                     : [];
 
             foreach ($variants as $variant) {
+
+                if (!is_array($variant)) {
+                    $errors[] = [
+                        'product_id' => $productId,
+                        'reason' =>
+                            'INVALID_VARIANT_MAPPING',
+                    ];
+
+                    continue;
+                }
 
                 $variationId =
                     isset($variant['woocommerce_variation_id'])
@@ -769,7 +916,10 @@ final class WooCommerceOwnershipCommitter
                         $variationId
                     );
 
-                if ($variationParentId !== $productId) {
+                if (
+                    $variationParentId
+                    !== $productId
+                ) {
                     $errors[] = [
                         'product_id' => $productId,
                         'variation_id' => $variationId,
@@ -855,72 +1005,324 @@ final class WooCommerceOwnershipCommitter
         }
 
         return [
-            'pass' => count($errors) === 0,
-            'approved_mappings' => count($adoptionMappings),
-            'parent_mappings' => $parentCount,
-            'variant_mappings' => $variantCount,
-            'errors' => $errors,
+            'pass' =>
+                count($errors) === 0,
+            'approved_mappings' =>
+                count($adoptionMappings),
+            'parent_mappings' =>
+                $parentCount,
+            'variant_mappings' =>
+                $variantCount,
+            'errors' =>
+                $errors,
         ];
     }
 
-/**
- * Inspect existing BlackPrint ownership before any write occurs.
- *
- * Ownership states:
- *
- * - NEW:
- *     No BlackPrint ownership metadata exists.
- *
- * - ALREADY_MANAGED:
- *     Existing ownership exactly matches the verified mapping.
- *
- * - REPAIRABLE:
- *     Existing ownership metadata is partial, but every existing
- *     non-empty value agrees with the verified mapping. The missing
- *     ownership field(s) may safely be completed during Phase 3.
- *
- * - CONFLICT:
- *     Existing ownership contains a value that contradicts the
- *     verified mapping. The entire commit must abort before writes.
- *
- * IMPORTANT:
- * This method is read-only. It must never mutate WooCommerce.
- *
- * @param array<int|string, array<string, mixed>> $adoptionMappings
- *
- * @return array<string, mixed>
- */
-private function inspectExistingOwnership(
-    array $adoptionMappings
-): array {
-    $parentConflicts = [];
-    $variantConflicts = [];
+    /*
+    |--------------------------------------------------------------------------
+    | Existing ownership inspection.
+    |--------------------------------------------------------------------------
+    */
 
-    $parentsAlreadyManaged = 0;
-    $variantsAlreadyManaged = 0;
+    /**
+     * Inspect existing BlackPrint ownership before any write occurs.
+     *
+     * Ownership states:
+     *
+     * - NEW:
+     *     No BlackPrint ownership metadata exists.
+     *
+     * - ALREADY_MANAGED:
+     *     Existing ownership exactly matches the verified mapping.
+     *
+     * - REPAIRABLE:
+     *     Existing ownership metadata is partial, but every existing
+     *     non-empty value agrees with the verified mapping. The missing
+     *     ownership field(s) may safely be completed during Phase 3.
+     *
+     * - CONFLICT:
+     *     Existing ownership contains a value that contradicts the
+     *     verified mapping. The entire commit must abort before writes.
+     *
+     * IMPORTANT:
+     * This method is read-only. It must never mutate WooCommerce.
+     *
+     * @param array<int|string, array<string, mixed>> $adoptionMappings
+     *
+     * @return array<string, mixed>
+     */
+    private function inspectExistingOwnership(
+        array $adoptionMappings
+    ): array {
+        $parentConflicts = [];
+        $variantConflicts = [];
 
-    $parentsRepairable = 0;
-    $variantsRepairable = 0;
+        $parentsAlreadyManaged = 0;
+        $variantsAlreadyManaged = 0;
 
-    $parentRepairableDetails = [];
-    $variantRepairableDetails = [];
+        $parentsRepairable = 0;
+        $variantsRepairable = 0;
 
-    foreach ($adoptionMappings as $productId => $mapping) {
+        $parentRepairableDetails = [];
+        $variantRepairableDetails = [];
 
-        $productId = (int) $productId;
+        foreach ($adoptionMappings as $productId => $mapping) {
 
-        $canonicalProductId =
-            (string) $mapping['canonical_product_id'];
+            $productId = (int) $productId;
 
-        $canonicalProductCode =
-            (string) $mapping['canonical_product_code'];
+            $canonicalProductId =
+                (string) $mapping[
+                    'canonical_product_id'
+                ];
 
-        /*
-         * --------------------------------------------------------------
-         * Parent ownership inspection.
-         * --------------------------------------------------------------
-         */
+            $canonicalProductCode =
+                (string) $mapping[
+                    'canonical_product_code'
+                ];
 
+            /*
+             * ----------------------------------------------------------
+             * Parent ownership inspection.
+             * ----------------------------------------------------------
+             */
+
+            $parentOwnership =
+                $this->inspectParentOwnershipRecord(
+                    $productId,
+                    $canonicalProductId,
+                    $canonicalProductCode
+                );
+
+            if (
+                $parentOwnership['status']
+                === 'already_managed'
+            ) {
+                $parentsAlreadyManaged++;
+
+            } elseif (
+                $parentOwnership['status']
+                === 'repairable'
+            ) {
+                $parentsRepairable++;
+
+                $parentRepairableDetails[] = [
+                    'woocommerce_product_id' =>
+                        $productId,
+                    'expected' => [
+                        '_blackprint_managed' =>
+                            self::MANAGED,
+                        '_blackprint_supplier' =>
+                            self::SUPPLIER,
+                        '_blackprint_product_id' =>
+                            $canonicalProductId,
+                        '_blackprint_product_code' =>
+                            $canonicalProductCode,
+                    ],
+                    'existing' =>
+                        $parentOwnership['existing'],
+                    'classification' =>
+                        'REPAIRABLE_PARTIAL_OWNERSHIP',
+                ];
+
+            } elseif (
+                $parentOwnership['status']
+                === 'ownership_conflict'
+            ) {
+                $parentConflicts[] = [
+                    'woocommerce_product_id' =>
+                        $productId,
+                    'expected' => [
+                        '_blackprint_managed' =>
+                            self::MANAGED,
+                        '_blackprint_supplier' =>
+                            self::SUPPLIER,
+                        '_blackprint_product_id' =>
+                            $canonicalProductId,
+                        '_blackprint_product_code' =>
+                            $canonicalProductCode,
+                    ],
+                    'existing' =>
+                        $parentOwnership['existing'],
+                    'classification' =>
+                        'OWNERSHIP_CONFLICT',
+                ];
+
+                /*
+                 * Parent conflict means the parent itself is unsafe,
+                 * but we intentionally continue inspecting the supplied
+                 * variants so the complete diagnostic remains available.
+                 */
+            }
+
+            /*
+             * ----------------------------------------------------------
+             * Explicit variant ownership inspection.
+             * ----------------------------------------------------------
+             */
+
+            $variants =
+                isset($mapping['variants'])
+                && is_array($mapping['variants'])
+                    ? $mapping['variants']
+                    : [];
+
+            foreach ($variants as $variant) {
+
+                if (!is_array($variant)) {
+                    continue;
+                }
+
+                $variationId =
+                    isset(
+                        $variant[
+                            'woocommerce_variation_id'
+                        ]
+                    )
+                        ? (int) $variant[
+                            'woocommerce_variation_id'
+                        ]
+                        : 0;
+
+                /*
+                 * Simple-product mappings intentionally have no
+                 * WooCommerce variation ID.
+                 *
+                 * Their ownership is represented by the parent.
+                 */
+
+                if ($variationId <= 0) {
+                    continue;
+                }
+
+                $canonicalVariantCode =
+                    isset(
+                        $variant[
+                            'canonical_variant_code'
+                        ]
+                    )
+                        ? trim(
+                            (string) $variant[
+                                'canonical_variant_code'
+                            ]
+                        )
+                        : '';
+
+                $variantOwnership =
+                    $this->inspectVariantOwnershipRecord(
+                        $variationId,
+                        $canonicalVariantCode
+                    );
+
+                if (
+                    $variantOwnership['status']
+                    === 'already_managed'
+                ) {
+                    $variantsAlreadyManaged++;
+
+                } elseif (
+                    $variantOwnership['status']
+                    === 'repairable'
+                ) {
+                    $variantsRepairable++;
+
+                    $variantRepairableDetails[] = [
+                        'woocommerce_variation_id' =>
+                            $variationId,
+                        'canonical_variant_code' =>
+                            $canonicalVariantCode,
+                        'expected' => [
+                            '_blackprint_managed' =>
+                                self::MANAGED,
+                            '_blackprint_supplier' =>
+                                self::SUPPLIER,
+                            '_blackprint_variant_code' =>
+                                $canonicalVariantCode,
+                        ],
+                        'existing' =>
+                            $variantOwnership['existing'],
+                        'classification' =>
+                            'REPAIRABLE_PARTIAL_OWNERSHIP',
+                    ];
+
+                } elseif (
+                    $variantOwnership['status']
+                    === 'ownership_conflict'
+                ) {
+                    $variantConflicts[] = [
+                        'woocommerce_variation_id' =>
+                            $variationId,
+                        'expected' => [
+                            '_blackprint_managed' =>
+                                self::MANAGED,
+                            '_blackprint_supplier' =>
+                                self::SUPPLIER,
+                            '_blackprint_variant_code' =>
+                                $canonicalVariantCode,
+                        ],
+                        'existing' =>
+                            $variantOwnership['existing'],
+                        'classification' =>
+                            'OWNERSHIP_CONFLICT',
+                    ];
+                }
+            }
+        }
+
+        return [
+            /*
+             * PASS only when there are no genuine ownership conflicts.
+             *
+             * Repairable partial ownership is intentionally allowed.
+             */
+            'pass' =>
+                count($parentConflicts) === 0
+                && count($variantConflicts) === 0,
+
+            'parents_already_managed' =>
+                $parentsAlreadyManaged,
+
+            'variants_already_managed' =>
+                $variantsAlreadyManaged,
+
+            'parents_repairable' =>
+                $parentsRepairable,
+
+            'variants_repairable' =>
+                $variantsRepairable,
+
+            'parent_conflicts' =>
+                count($parentConflicts),
+
+            'variant_conflicts' =>
+                count($variantConflicts),
+
+            'parent_repairable_details' =>
+                $parentRepairableDetails,
+
+            'variant_repairable_details' =>
+                $variantRepairableDetails,
+
+            'parent_conflict_details' =>
+                $parentConflicts,
+
+            'variant_conflict_details' =>
+                $variantConflicts,
+        ];
+    }
+
+    /**
+     * Inspect one parent ownership record.
+     *
+     * This method is read-only and applies exactly the same ownership
+     * classification rules as inspectExistingOwnership().
+     *
+     * @return array<string, mixed>
+     */
+    private function inspectParentOwnershipRecord(
+        int $productId,
+        string $canonicalProductId,
+        string $canonicalProductCode
+    ): array {
         $existingManaged =
             (string) get_post_meta(
                 $productId,
@@ -955,32 +1357,41 @@ private function inspectExistingOwnership(
             || $existingProductId !== ''
             || $existingProductCode !== '';
 
+        $existing = [
+            '_blackprint_managed' =>
+                $existingManaged,
+            '_blackprint_supplier' =>
+                $existingSupplier,
+            '_blackprint_product_id' =>
+                $existingProductId,
+            '_blackprint_product_code' =>
+                $existingProductCode,
+        ];
+
         if (!$hasOwnership) {
+            return [
+                'status' => 'new',
+                'existing' => $existing,
+            ];
+        }
 
-            /*
-             * NEW
-             *
-             * No existing BlackPrint ownership metadata.
-             * Safe to establish during Phase 3.
-             */
-
-        } elseif (
+        if (
             $existingManaged === self::MANAGED
             && $existingSupplier === self::SUPPLIER
-            && $existingProductId === $canonicalProductId
-            && $existingProductCode === $canonicalProductCode
+            && $existingProductId ===
+                $canonicalProductId
+            && $existingProductCode ===
+                $canonicalProductCode
         ) {
+            return [
+                'status' =>
+                    'already_managed',
+                'existing' =>
+                    $existing,
+            ];
+        }
 
-            /*
-             * ALREADY_MANAGED
-             *
-             * Existing parent ownership exactly matches the
-             * verified Step 5B mapping.
-             */
-
-            $parentsAlreadyManaged++;
-
-        } elseif (
+        if (
             (
                 $existingManaged === ''
                 || $existingManaged === self::MANAGED
@@ -991,378 +1402,224 @@ private function inspectExistingOwnership(
             )
             && (
                 $existingProductId === ''
-                || $existingProductId === $canonicalProductId
+                || $existingProductId ===
+                    $canonicalProductId
             )
             && (
                 $existingProductCode === ''
-                || $existingProductCode === $canonicalProductCode
+                || $existingProductCode ===
+                    $canonicalProductCode
             )
         ) {
-
-            /*
-             * REPAIRABLE
-             *
-             * Existing metadata is incomplete, but every existing
-             * value agrees with the verified mapping.
-             *
-             * Phase 3 will write the complete authoritative state.
-             */
-
-            $parentsRepairable++;
-
-            $parentRepairableDetails[] = [
-                'woocommerce_product_id' => $productId,
-                'expected' => [
-                    '_blackprint_managed' =>
-                        self::MANAGED,
-                    '_blackprint_supplier' =>
-                        self::SUPPLIER,
-                    '_blackprint_product_id' =>
-                        $canonicalProductId,
-                    '_blackprint_product_code' =>
-                        $canonicalProductCode,
-                ],
-                'existing' => [
-                    '_blackprint_managed' =>
-                        $existingManaged,
-                    '_blackprint_supplier' =>
-                        $existingSupplier,
-                    '_blackprint_product_id' =>
-                        $existingProductId,
-                    '_blackprint_product_code' =>
-                        $existingProductCode,
-                ],
-                'classification' =>
-                    'REPAIRABLE_PARTIAL_OWNERSHIP',
-            ];
-
-        } else {
-
-            /*
-             * CONFLICT
-             *
-             * At least one existing ownership value contradicts
-             * the verified mapping.
-             *
-             * This blocks the entire commit.
-             */
-
-            $parentConflicts[] = [
-                'woocommerce_product_id' => $productId,
-                'expected' => [
-                    '_blackprint_managed' =>
-                        self::MANAGED,
-                    '_blackprint_supplier' =>
-                        self::SUPPLIER,
-                    '_blackprint_product_id' =>
-                        $canonicalProductId,
-                    '_blackprint_product_code' =>
-                        $canonicalProductCode,
-                ],
-                'existing' => [
-                    '_blackprint_managed' =>
-                        $existingManaged,
-                    '_blackprint_supplier' =>
-                        $existingSupplier,
-                    '_blackprint_product_id' =>
-                        $existingProductId,
-                    '_blackprint_product_code' =>
-                        $existingProductCode,
-                ],
-                'classification' =>
-                    'OWNERSHIP_CONFLICT',
-            ];
-
-            continue;
-        }
-
-        /*
-         * --------------------------------------------------------------
-         * Explicit variant ownership inspection.
-         * --------------------------------------------------------------
-         */
-
-        $variants =
-            isset($mapping['variants'])
-            && is_array($mapping['variants'])
-                ? $mapping['variants']
-                : [];
-
-        foreach ($variants as $variant) {
-
-            $variationId =
-                isset($variant['woocommerce_variation_id'])
-                    ? (int) $variant[
-                        'woocommerce_variation_id'
-                    ]
-                    : 0;
-
-            /*
-             * Simple-product mappings intentionally have no
-             * WooCommerce variation ID.
-             *
-             * Their ownership is represented by the parent.
-             */
-
-            if ($variationId <= 0) {
-                continue;
-            }
-
-            $canonicalVariantCode =
-                isset($variant['canonical_variant_code'])
-                    ? trim(
-                        (string)
-                        $variant['canonical_variant_code']
-                    )
-                    : '';
-
-            $existingManaged =
-                (string) get_post_meta(
-                    $variationId,
-                    '_blackprint_managed',
-                    true
-                );
-
-            $existingSupplier =
-                (string) get_post_meta(
-                    $variationId,
-                    '_blackprint_supplier',
-                    true
-                );
-
-            $existingVariantCode =
-                (string) get_post_meta(
-                    $variationId,
-                    '_blackprint_variant_code',
-                    true
-                );
-
-            $hasOwnership =
-                $existingManaged !== ''
-                || $existingSupplier !== ''
-                || $existingVariantCode !== '';
-
-            if (!$hasOwnership) {
-
-                /*
-                 * NEW
-                 *
-                 * No existing BlackPrint ownership metadata.
-                 * Safe to establish during Phase 3.
-                 */
-
-                continue;
-            }
-
-            if (
-                $existingManaged === self::MANAGED
-                && $existingSupplier === self::SUPPLIER
-                && $existingVariantCode ===
-                    $canonicalVariantCode
-            ) {
-
-                /*
-                 * ALREADY_MANAGED
-                 *
-                 * Existing variant ownership exactly matches
-                 * the verified mapping.
-                 */
-
-                $variantsAlreadyManaged++;
-
-                continue;
-            }
-
-            if (
-                (
-                    $existingManaged === ''
-                    || $existingManaged === self::MANAGED
-                )
-                && (
-                    $existingSupplier === ''
-                    || $existingSupplier === self::SUPPLIER
-                )
-                && (
-                    $existingVariantCode === ''
-                    || $existingVariantCode ===
-                        $canonicalVariantCode
-                )
-            ) {
-
-                /*
-                 * REPAIRABLE
-                 *
-                 * Existing metadata is incomplete, but every
-                 * existing value agrees with the verified mapping.
-                 *
-                 * The missing field(s) will be completed by
-                 * writeVariantOwnership() during Phase 3.
-                 */
-
-                $variantsRepairable++;
-
-                $variantRepairableDetails[] = [
-                    'woocommerce_variation_id' =>
-                        $variationId,
-                    'canonical_variant_code' =>
-                        $canonicalVariantCode,
-                    'expected' => [
-                        '_blackprint_managed' =>
-                            self::MANAGED,
-                        '_blackprint_supplier' =>
-                            self::SUPPLIER,
-                        '_blackprint_variant_code' =>
-                            $canonicalVariantCode,
-                    ],
-                    'existing' => [
-                        '_blackprint_managed' =>
-                            $existingManaged,
-                        '_blackprint_supplier' =>
-                            $existingSupplier,
-                        '_blackprint_variant_code' =>
-                            $existingVariantCode,
-                    ],
-                    'classification' =>
-                        'REPAIRABLE_PARTIAL_OWNERSHIP',
-                ];
-
-                continue;
-            }
-
-            /*
-             * CONFLICT
-             *
-             * At least one existing ownership value contradicts
-             * the verified mapping.
-             *
-             * This blocks the entire commit.
-             */
-
-            $variantConflicts[] = [
-                'woocommerce_variation_id' =>
-                    $variationId,
-                'expected' => [
-                    '_blackprint_managed' =>
-                        self::MANAGED,
-                    '_blackprint_supplier' =>
-                        self::SUPPLIER,
-                    '_blackprint_variant_code' =>
-                        $canonicalVariantCode,
-                ],
-                'existing' => [
-                    '_blackprint_managed' =>
-                        $existingManaged,
-                    '_blackprint_supplier' =>
-                        $existingSupplier,
-                    '_blackprint_variant_code' =>
-                        $existingVariantCode,
-                ],
-                'classification' =>
-                    'OWNERSHIP_CONFLICT',
-            ];
-        }
-    }
-
-    return [
-        /*
-         * PASS only when there are no genuine ownership conflicts.
-         *
-         * Repairable partial ownership is intentionally allowed.
-         */
-        'pass' =>
-            count($parentConflicts) === 0
-            && count($variantConflicts) === 0,
-
-        'parents_already_managed' =>
-            $parentsAlreadyManaged,
-
-        'variants_already_managed' =>
-            $variantsAlreadyManaged,
-
-        'parents_repairable' =>
-            $parentsRepairable,
-
-        'variants_repairable' =>
-            $variantsRepairable,
-
-        'parent_conflicts' =>
-            count($parentConflicts),
-
-        'variant_conflicts' =>
-            count($variantConflicts),
-
-        'parent_repairable_details' =>
-            $parentRepairableDetails,
-
-        'variant_repairable_details' =>
-            $variantRepairableDetails,
-
-        'parent_conflict_details' =>
-            $parentConflicts,
-
-        'variant_conflict_details' =>
-            $variantConflicts,
-    ];
-}
-
-/*
-|--------------------------------------------------------------------------
-| Parent ownership write.
-|--------------------------------------------------------------------------
-*/
-
-/**
- * @return array<string, mixed>
- */
-private function writeParentOwnership(
-    int $productId,
-    string $canonicalProductId,
-    string $canonicalProductCode
-): array {
-    $updates = [
-        '_blackprint_managed' => self::MANAGED,
-        '_blackprint_supplier' => self::SUPPLIER,
-        '_blackprint_product_id' => $canonicalProductId,
-        '_blackprint_product_code' => $canonicalProductCode,
-    ];
-
-    foreach ($updates as $key => $value) {
-
-        $result = update_post_meta(
-            $productId,
-            $key,
-            $value
-        );
-
-        if ($result === false) {
             return [
-                'success' => false,
-                'error' => sprintf(
-                    'Failed writing parent metadata key %s.',
-                    $key
-                ),
+                'status' =>
+                    'repairable',
+                'existing' =>
+                    $existing,
             ];
         }
-    }
 
-    if (
-        !$this->hasExactParentOwnership(
-            $productId,
-            $canonicalProductId,
-            $canonicalProductCode
-        )
-    ) {
         return [
-            'success' => false,
-            'error' =>
-                'Parent ownership post-write verification failed.',
+            'status' =>
+                'ownership_conflict',
+            'existing' =>
+                $existing,
         ];
     }
 
-    return [
-        'success' => true,
-    ];
-}
+    /**
+     * Inspect one variant ownership record.
+     *
+     * This method is read-only and applies exactly the same ownership
+     * classification rules as inspectExistingOwnership().
+     *
+     * @return array<string, mixed>
+     */
+    private function inspectVariantOwnershipRecord(
+        int $variationId,
+        string $canonicalVariantCode
+    ): array {
+        $existingManaged =
+            (string) get_post_meta(
+                $variationId,
+                '_blackprint_managed',
+                true
+            );
+
+        $existingSupplier =
+            (string) get_post_meta(
+                $variationId,
+                '_blackprint_supplier',
+                true
+            );
+
+        $existingVariantCode =
+            (string) get_post_meta(
+                $variationId,
+                '_blackprint_variant_code',
+                true
+            );
+
+        $hasOwnership =
+            $existingManaged !== ''
+            || $existingSupplier !== ''
+            || $existingVariantCode !== '';
+
+        $existing = [
+            '_blackprint_managed' =>
+                $existingManaged,
+            '_blackprint_supplier' =>
+                $existingSupplier,
+            '_blackprint_variant_code' =>
+                $existingVariantCode,
+        ];
+
+        if (!$hasOwnership) {
+            return [
+                'status' => 'new',
+                'existing' => $existing,
+            ];
+        }
+
+        if (
+            $existingManaged === self::MANAGED
+            && $existingSupplier === self::SUPPLIER
+            && $existingVariantCode ===
+                $canonicalVariantCode
+        ) {
+            return [
+                'status' =>
+                    'already_managed',
+                'existing' =>
+                    $existing,
+            ];
+        }
+
+        if (
+            (
+                $existingManaged === ''
+                || $existingManaged === self::MANAGED
+            )
+            && (
+                $existingSupplier === ''
+                || $existingSupplier === self::SUPPLIER
+            )
+            && (
+                $existingVariantCode === ''
+                || $existingVariantCode ===
+                    $canonicalVariantCode
+            )
+        ) {
+            return [
+                'status' =>
+                    'repairable',
+                'existing' =>
+                    $existing,
+            ];
+        }
+
+        return [
+            'status' =>
+                'ownership_conflict',
+            'existing' =>
+                $existing,
+        ];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Parent ownership write.
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Write or repair parent ownership metadata.
+     *
+     * A false return from update_post_meta() is NOT automatically treated
+     * as a failure because WordPress may return false when the requested
+     * value is already present.
+     *
+     * Every false result is therefore followed by read-back verification.
+     *
+     * @return array<string, mixed>
+     */
+    private function writeParentOwnership(
+        int $productId,
+        string $canonicalProductId,
+        string $canonicalProductCode
+    ): array {
+        $updates = [
+            '_blackprint_managed' =>
+                self::MANAGED,
+            '_blackprint_supplier' =>
+                self::SUPPLIER,
+            '_blackprint_product_id' =>
+                $canonicalProductId,
+            '_blackprint_product_code' =>
+                $canonicalProductCode,
+        ];
+
+        foreach ($updates as $key => $value) {
+
+            $result = update_post_meta(
+                $productId,
+                $key,
+                $value
+            );
+
+            if ($result === false) {
+
+                /*
+                 * WordPress can return false when the metadata already
+                 * contains the requested value.
+                 *
+                 * Read back before declaring failure.
+                 */
+
+                $actual = (string) get_post_meta(
+                    $productId,
+                    $key,
+                    true
+                );
+
+                if ($actual === (string) $value) {
+                    continue;
+                }
+
+                return [
+                    'success' => false,
+                    'error' => sprintf(
+                        'Failed writing parent metadata key %s.',
+                        $key
+                    ),
+                ];
+            }
+
+            /*
+             * Even when update_post_meta() reports success, continue to
+             * the final complete ownership verification below.
+             */
+        }
+
+        if (
+            !$this->hasExactParentOwnership(
+                $productId,
+                $canonicalProductId,
+                $canonicalProductCode
+            )
+        ) {
+            return [
+                'success' => false,
+                'error' =>
+                    'Parent ownership post-write verification failed.',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'status' => 'written',
+        ];
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -1371,6 +1628,14 @@ private function writeParentOwnership(
     */
 
     /**
+     * Write or repair variant ownership metadata.
+     *
+     * A false return from update_post_meta() is NOT automatically treated
+     * as a failure because WordPress may return false when the requested
+     * value is already present.
+     *
+     * Every false result is therefore followed by read-back verification.
+     *
      * @return array<string, mixed>
      */
     private function writeVariantOwnership(
@@ -1378,8 +1643,10 @@ private function writeParentOwnership(
         string $canonicalVariantCode
     ): array {
         $updates = [
-            '_blackprint_managed' => self::MANAGED,
-            '_blackprint_supplier' => self::SUPPLIER,
+            '_blackprint_managed' =>
+                self::MANAGED,
+            '_blackprint_supplier' =>
+                self::SUPPLIER,
             '_blackprint_variant_code' =>
                 $canonicalVariantCode,
         ];
@@ -1393,6 +1660,24 @@ private function writeParentOwnership(
             );
 
             if ($result === false) {
+
+                /*
+                 * WordPress can return false when the metadata already
+                 * contains the requested value.
+                 *
+                 * Read back before declaring failure.
+                 */
+
+                $actual = (string) get_post_meta(
+                    $variationId,
+                    $key,
+                    true
+                );
+
+                if ($actual === (string) $value) {
+                    continue;
+                }
+
                 return [
                     'success' => false,
                     'error' => sprintf(
@@ -1401,6 +1686,11 @@ private function writeParentOwnership(
                     ),
                 ];
             }
+
+            /*
+             * Even when update_post_meta() reports success, continue to
+             * the final complete ownership verification below.
+             */
         }
 
         if (
@@ -1418,6 +1708,7 @@ private function writeParentOwnership(
 
         return [
             'success' => true,
+            'status' => 'written',
         ];
     }
 
@@ -1506,10 +1797,14 @@ private function writeParentOwnership(
             $productId = (int) $productId;
 
             $canonicalProductId =
-                (string) $mapping['canonical_product_id'];
+                (string) $mapping[
+                    'canonical_product_id'
+                ];
 
             $canonicalProductCode =
-                (string) $mapping['canonical_product_code'];
+                (string) $mapping[
+                    'canonical_product_code'
+                ];
 
             if (
                 !$this->hasExactParentOwnership(
@@ -1537,8 +1832,16 @@ private function writeParentOwnership(
 
             foreach ($variants as $variant) {
 
+                if (!is_array($variant)) {
+                    continue;
+                }
+
                 $variationId =
-                    isset($variant['woocommerce_variation_id'])
+                    isset(
+                        $variant[
+                            'woocommerce_variation_id'
+                        ]
+                    )
                         ? (int) $variant[
                             'woocommerce_variation_id'
                         ]
@@ -1548,15 +1851,21 @@ private function writeParentOwnership(
                  * Simple-product mapping has no variation ownership
                  * record.
                  */
+
                 if ($variationId <= 0) {
                     continue;
                 }
 
                 $canonicalVariantCode =
-                    isset($variant['canonical_variant_code'])
+                    isset(
+                        $variant[
+                            'canonical_variant_code'
+                        ]
+                    )
                         ? trim(
-                            (string)
-                            $variant['canonical_variant_code']
+                            (string) $variant[
+                                'canonical_variant_code'
+                            ]
                         )
                         : '';
 
@@ -1567,8 +1876,10 @@ private function writeParentOwnership(
                     )
                 ) {
                     $errors[] = [
-                        'product_id' => $productId,
-                        'variation_id' => $variationId,
+                        'product_id' =>
+                            $productId,
+                        'variation_id' =>
+                            $variationId,
                         'canonical_variant_code' =>
                             $canonicalVariantCode,
                         'reason' =>
@@ -1611,14 +1922,16 @@ private function writeParentOwnership(
         }
 
         return [
-            'pass' => count($errors) === 0,
+            'pass' =>
+                count($errors) === 0,
             'verified_parent_ownership' =>
                 $verifiedParents,
             'verified_variant_ownership' =>
                 $verifiedVariants,
             'missing_or_incorrect_records' =>
                 count($errors),
-            'errors' => $errors,
+            'errors' =>
+                $errors,
         ];
     }
 }
