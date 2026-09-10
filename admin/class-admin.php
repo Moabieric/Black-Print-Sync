@@ -5567,6 +5567,32 @@ if (!isset($adoptionMappings) || !is_array($adoptionMappings)) {
                 'canonical_product_code' => $canonicalProductCode,
             ];
 
+            } elseif (
+    (
+        (string) $existingManaged === ''
+        || (string) $existingManaged === 'yes'
+    )
+    && (
+        (string) $existingSupplier === ''
+        || (string) $existingSupplier === 'amrod'
+    )
+    && (
+        (string) $existingProductId === ''
+        || (string) $existingProductId === $canonicalProductId
+    )
+    && (
+        (string) $existingProductCode === ''
+        || (string) $existingProductCode === $canonicalProductCode
+    )
+) {
+
+    $ownershipWouldAdoptParents[$productId] = [
+        'woocommerce_product_id' => $productId,
+        'canonical_product_id'   => $canonicalProductId,
+        'canonical_product_code' => $canonicalProductCode,
+        'classification'         => 'REPAIRABLE_PARTIAL_OWNERSHIP',
+    ];
+
         } else {
 
             /*
@@ -5720,6 +5746,29 @@ if (!isset($adoptionMappings) || !is_array($adoptionMappings)) {
                     'woocommerce_sku'          => $woocommerceSku,
                     'canonical_variant_code'   => $canonicalVariantCode,
                 ];
+
+            } elseif (
+                (
+                    (string) $existingVariantManaged === ''
+                    || (string) $existingVariantManaged === 'yes'
+                )
+                && (
+                    (string) $existingVariantSupplier === ''
+                    || (string) $existingVariantSupplier === 'amrod'
+                )
+                && (
+                    (string) $existingVariantCode === ''
+                    || (string) $existingVariantCode === $canonicalVariantCode
+                )
+            ) {
+
+                $ownershipWouldAdoptVariants[$variationId] = [
+                    'woocommerce_product_id'   => $productId,
+                    'woocommerce_variation_id' => $variationId,
+                    'woocommerce_sku'          => $woocommerceSku,
+                    'canonical_variant_code'   => $canonicalVariantCode,
+                    'classification'           => 'REPAIRABLE_PARTIAL_OWNERSHIP',
+                ];    
 
             } else {
 
