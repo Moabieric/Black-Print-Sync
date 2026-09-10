@@ -32,4 +32,5 @@ require_once BP_COMMERCE_PATH
 require_once BP_COMMERCE_PATH
     . 'projection/woocommerce/WooCommerceOwnershipCommitter.php';
 
-
+require_once BP_COMMERCE_PATH
+    . 'projection/woocommerce/WooCommerceOwnershipBatchCommitter.php';

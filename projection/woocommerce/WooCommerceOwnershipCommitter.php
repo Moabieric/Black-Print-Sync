@@ -51,6 +51,99 @@ final class WooCommerceOwnershipCommitter
 
     private const EXPECTED_VARIANT_OWNERSHIP = 20265;
 
+    /**
+     * Run the complete Step 5B pre-write safety check.
+     *
+     * This exposes the existing validation and ownership inspection
+     * without duplicating ownership rules outside this class.
+     *
+     * No WooCommerce writes are performed.
+     *
+     * @param array<int, array<string, mixed>> $adoptionMappings
+     *
+     * @return array<string, mixed>
+     *
+     * @throws \RuntimeException
+     */
+    public function preflightOwnershipCommit(
+        array $adoptionMappings
+    ): array {
+        $validation = $this->validateMappings(
+            $adoptionMappings
+        );
+
+        if (
+            ($validation['pass'] ?? false)
+            !== true
+        ) {
+            return [
+                'pass' => false,
+                'validation' => $validation,
+                'ownership' => null,
+            ];
+        }
+
+        $ownership = $this->inspectExistingOwnership(
+            $adoptionMappings
+        );
+
+        return [
+            'pass' =>
+                ($validation['pass'] ?? false)
+                && ($ownership['pass'] ?? false),
+            'validation' => $validation,
+            'ownership' => $ownership,
+        ];
+    }
+
+    /**
+     * Run final Step 5B ownership verification.
+     *
+     * No WooCommerce writes are performed.
+     *
+     * @param array<int, array<string, mixed>> $adoptionMappings
+     *
+     * @return array<string, mixed>
+     *
+     * @throws \RuntimeException
+     */
+    public function verifyOwnershipCommit(
+        array $adoptionMappings
+    ): array {
+        $validation = $this->validateMappings(
+            $adoptionMappings
+        );
+
+        if (
+            ($validation['pass'] ?? false)
+            !== true
+        ) {
+            return [
+                'pass' => false,
+                'validation' => $validation,
+                'verification' => [
+                    'pass' => false,
+                    'verified_parent_ownership' => 0,
+                    'verified_variant_ownership' => 0,
+                    'missing_or_incorrect_records' => 0,
+                    'errors' => [
+                        'Step 5B mapping validation failed before final verification.',
+                    ],
+                ],
+            ];
+        }
+
+        $verification = $this->verifyCommittedOwnership(
+            $adoptionMappings
+        );
+
+        return [
+            'pass' => ($verification['pass'] ?? false) === true,
+            'validation' => $validation,
+            'verification' => $verification,
+        ];
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Commit.

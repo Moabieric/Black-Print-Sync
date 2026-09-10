@@ -11,35 +11,20 @@ defined('ABSPATH') || exit;
 /**
  * Resumable Step 5B WooCommerce ownership batch committer.
  *
- * This class is an orchestration layer only.
+ * This class is orchestration only.
  *
- * It does not implement ownership rules itself.
- * All ownership decisions and writes are delegated to
- * WooCommerceOwnershipCommitter.
+ * Ownership rules, validation and actual WooCommerce writes remain
+ * centralized in WooCommerceOwnershipCommitter.
  *
- * Step 5B is processed in bounded requests to avoid gateway and
- * execution-time limits.
+ * Step 5B is processed in bounded requests to avoid PHP execution,
+ * FastCGI and gateway timeout limits.
  */
 final class WooCommerceOwnershipBatchCommitter
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Batch configuration.
-    |--------------------------------------------------------------------------
-    */
-
     private const PARENT_BATCH_SIZE = 250;
-
     private const VARIANT_BATCH_SIZE = 500;
 
-    /*
-    |--------------------------------------------------------------------------
-    | Locked Step 5B expectations.
-    |--------------------------------------------------------------------------
-    */
-
     private const EXPECTED_PARENTS = 3710;
-
     private const EXPECTED_VARIANTS = 20265;
 
     private WooCommerceOwnershipCommitState $stateStore;
@@ -55,36 +40,30 @@ final class WooCommerceOwnershipBatchCommitter
             new WooCommerceOwnershipCommitter();
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Start.
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Start a new resumable Step 5B commit.
+     * Create a new resumable Step 5B commit state.
      *
-     * This method performs no WooCommerce writes.
+     * This method does not write WooCommerce ownership.
+     *
+     * Preflight safety is intentionally performed by the caller
+     * through WooCommerceOwnershipCommitter before state creation.
      *
      * @param array<string, mixed> $artifact
      *
      * @return array<string, mixed>
+     *
+     * @throws \RuntimeException
      */
-    public function start(
-        array $artifact
-    ): array {
-        $this->validateArtifact(
-            $artifact
-        );
+    public function start(array $artifact): array
+    {
+        $this->validateArtifact($artifact);
 
         $existing =
             $this->stateStore->loadLatest();
 
         if (
             is_array($existing)
-            && $this->stateStore->isResumable(
-                $existing
-            )
+            && $this->stateStore->isResumable($existing)
         ) {
             throw new \RuntimeException(
                 'A Step 5B ownership commit is already in progress.'
@@ -99,12 +78,6 @@ final class WooCommerceOwnershipBatchCommitter
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Batch processing.
-    |--------------------------------------------------------------------------
-    */
-
     /**
      * Process exactly one bounded batch.
      *
@@ -112,14 +85,14 @@ final class WooCommerceOwnershipBatchCommitter
      * @param array<string, mixed> $state
      *
      * @return array<string, mixed>
+     *
+     * @throws \RuntimeException
      */
     public function processBatch(
         array $artifact,
         array $state
     ): array {
-        $this->validateArtifact(
-            $artifact
-        );
+        $this->validateArtifact($artifact);
 
         $this->validateStateAgainstArtifact(
             $state,
@@ -133,14 +106,6 @@ final class WooCommerceOwnershipBatchCommitter
             return $state;
         }
 
-        /*
-         * A failed state is intentionally resumable.
-         *
-         * The previous request may have written some records before
-         * the failure/timeout. The ownership committer is idempotent,
-         * so retrying the same batch safely resolves those records as
-         * already managed.
-         */
         if (
             ($state['status'] ?? '')
             === WooCommerceOwnershipCommitState::STATUS_FAILED
@@ -148,14 +113,17 @@ final class WooCommerceOwnershipBatchCommitter
             $state['status'] =
                 WooCommerceOwnershipCommitState::STATUS_IN_PROGRESS;
 
+            $state['last_error'] = null;
+
             $state =
-                $this->stateStore->save(
-                    $state
-                );
+                $this->stateStore->save($state);
         }
 
+        $phase =
+            (string) ($state['phase'] ?? '');
+
         if (
-            ($state['phase'] ?? '')
+            $phase
             === WooCommerceOwnershipCommitState::PHASE_PARENT
         ) {
             return $this->processParentBatch(
@@ -165,7 +133,7 @@ final class WooCommerceOwnershipBatchCommitter
         }
 
         if (
-            ($state['phase'] ?? '')
+            $phase
             === WooCommerceOwnershipCommitState::PHASE_VARIANT
         ) {
             return $this->processVariantBatch(
@@ -175,7 +143,7 @@ final class WooCommerceOwnershipBatchCommitter
         }
 
         if (
-            ($state['phase'] ?? '')
+            $phase
             === WooCommerceOwnershipCommitState::PHASE_COMPLETE
         ) {
             return $this->stateStore->complete(
@@ -188,12 +156,6 @@ final class WooCommerceOwnershipBatchCommitter
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Parent batch.
-    |--------------------------------------------------------------------------
-    */
-
     /**
      * Process one parent batch.
      *
@@ -201,16 +163,15 @@ final class WooCommerceOwnershipBatchCommitter
      * @param array<string, mixed> $state
      *
      * @return array<string, mixed>
+     *
+     * @throws \RuntimeException
      */
     private function processParentBatch(
         array $artifact,
         array $state
     ): array {
         $offset =
-            (int) (
-                $state['parent_processed']
-                ?? 0
-            );
+            (int) ($state['parent_processed'] ?? 0);
 
         $mappings =
             $this->getParentBatchMappings(
@@ -218,9 +179,14 @@ final class WooCommerceOwnershipBatchCommitter
                 $offset
             );
 
+        /*
+         * Parent phase is exhausted.
+         */
         if ($mappings === []) {
+
             if (
-                $offset !== self::EXPECTED_PARENTS
+                $offset
+                !== self::EXPECTED_PARENTS
             ) {
                 throw new \RuntimeException(
                     'Parent batch exhausted before all expected mappings were processed.'
@@ -244,7 +210,9 @@ final class WooCommerceOwnershipBatchCommitter
         $alreadyManaged = 0;
 
         try {
+
             foreach ($mappings as $mapping) {
+
                 $result =
                     $this->ownershipCommitter
                         ->commitParentMapping(
@@ -252,23 +220,37 @@ final class WooCommerceOwnershipBatchCommitter
                         );
 
                 if (
-                    $result === 'written'
+                    !is_array($result)
+                    || !isset($result['success'])
                 ) {
-                    $written++;
-                } elseif (
-                    $result === 'already_managed'
-                ) {
-                    $alreadyManaged++;
-                } else {
                     throw new \RuntimeException(
-                        sprintf(
-                            'Unexpected parent ownership result: %s.',
-                            $result
+                        'Parent ownership committer returned an invalid result.'
+                    );
+                }
+
+                if (
+                    ($result['success'] ?? false) !== true
+                ) {
+                    throw new \RuntimeException(
+                        (string) (
+                            $result['error']
+                            ?? 'Parent ownership write failed.'
                         )
                     );
                 }
+
+                if (
+                    ($result['status'] ?? '')
+                    === 'already_managed'
+                ) {
+                    $alreadyManaged++;
+                } else {
+                    $written++;
+                }
             }
+
         } catch (\Throwable $exception) {
+
             $state['parent_errors'] =
                 ((int) (
                     $state['parent_errors']
@@ -324,29 +306,22 @@ final class WooCommerceOwnershipBatchCommitter
         return $state;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Variant batch.
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Process one variation batch.
+     * Process one variant batch.
      *
      * @param array<string, mixed> $artifact
      * @param array<string, mixed> $state
      *
      * @return array<string, mixed>
+     *
+     * @throws \RuntimeException
      */
     private function processVariantBatch(
         array $artifact,
         array $state
     ): array {
         $offset =
-            (int) (
-                $state['variant_processed']
-                ?? 0
-            );
+            (int) ($state['variant_processed'] ?? 0);
 
         $mappings =
             $this->getVariantBatchMappings(
@@ -354,9 +329,14 @@ final class WooCommerceOwnershipBatchCommitter
                 $offset
             );
 
+        /*
+         * Variant phase is exhausted.
+         */
         if ($mappings === []) {
+
             if (
-                $offset !== self::EXPECTED_VARIANTS
+                $offset
+                !== self::EXPECTED_VARIANTS
             ) {
                 throw new \RuntimeException(
                     'Variant batch exhausted before all expected mappings were processed.'
@@ -377,7 +357,9 @@ final class WooCommerceOwnershipBatchCommitter
         $alreadyManaged = 0;
 
         try {
+
             foreach ($mappings as $mapping) {
+
                 $result =
                     $this->ownershipCommitter
                         ->commitVariantMapping(
@@ -385,23 +367,37 @@ final class WooCommerceOwnershipBatchCommitter
                         );
 
                 if (
-                    $result === 'written'
+                    !is_array($result)
+                    || !isset($result['success'])
                 ) {
-                    $written++;
-                } elseif (
-                    $result === 'already_managed'
-                ) {
-                    $alreadyManaged++;
-                } else {
                     throw new \RuntimeException(
-                        sprintf(
-                            'Unexpected variation ownership result: %s.',
-                            $result
+                        'Variant ownership committer returned an invalid result.'
+                    );
+                }
+
+                if (
+                    ($result['success'] ?? false) !== true
+                ) {
+                    throw new \RuntimeException(
+                        (string) (
+                            $result['error']
+                            ?? 'Variant ownership write failed.'
                         )
                     );
                 }
+
+                if (
+                    ($result['status'] ?? '')
+                    === 'already_managed'
+                ) {
+                    $alreadyManaged++;
+                } else {
+                    $written++;
+                }
             }
+
         } catch (\Throwable $exception) {
+
             $state['variant_errors'] =
                 ((int) (
                     $state['variant_errors']
@@ -454,18 +450,15 @@ final class WooCommerceOwnershipBatchCommitter
         return $state;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Mapping extraction.
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Retrieve one bounded parent batch.
+     * Extract the next parent batch.
      *
      * @param array<string, mixed> $artifact
+     * @param int $offset
      *
      * @return array<int, array<string, mixed>>
+     *
+     * @throws \RuntimeException
      */
     private function getParentBatchMappings(
         array $artifact,
@@ -475,9 +468,7 @@ final class WooCommerceOwnershipBatchCommitter
             $artifact['adoption_mappings']
             ?? null;
 
-        if (
-            ! is_array($mappings)
-        ) {
+        if (!is_array($mappings)) {
             throw new \RuntimeException(
                 'Verified artifact does not contain adoption mappings.'
             );
@@ -486,9 +477,8 @@ final class WooCommerceOwnershipBatchCommitter
         $parents = [];
 
         foreach ($mappings as $mapping) {
-            if (
-                ! is_array($mapping)
-            ) {
+
+            if (!is_array($mapping)) {
                 continue;
             }
 
@@ -498,14 +488,11 @@ final class WooCommerceOwnershipBatchCommitter
                     ?? 0
                 );
 
-            if (
-                $productId <= 0
-            ) {
+            if ($productId <= 0) {
                 continue;
             }
 
-            $parents[] =
-                $mapping;
+            $parents[] = $mapping;
         }
 
         return array_slice(
@@ -516,11 +503,17 @@ final class WooCommerceOwnershipBatchCommitter
     }
 
     /**
-     * Retrieve one bounded variation batch.
+     * Extract the next explicit variant batch.
+     *
+     * Only explicit WooCommerce variation ownership mappings
+     * are included.
      *
      * @param array<string, mixed> $artifact
+     * @param int $offset
      *
      * @return array<int, array<string, mixed>>
+     *
+     * @throws \RuntimeException
      */
     private function getVariantBatchMappings(
         array $artifact,
@@ -530,9 +523,7 @@ final class WooCommerceOwnershipBatchCommitter
             $artifact['adoption_mappings']
             ?? null;
 
-        if (
-            ! is_array($mappings)
-        ) {
+        if (!is_array($mappings)) {
             throw new \RuntimeException(
                 'Verified artifact does not contain adoption mappings.'
             );
@@ -541,9 +532,8 @@ final class WooCommerceOwnershipBatchCommitter
         $variants = [];
 
         foreach ($mappings as $mapping) {
-            if (
-                ! is_array($mapping)
-            ) {
+
+            if (!is_array($mapping)) {
                 continue;
             }
 
@@ -551,18 +541,13 @@ final class WooCommerceOwnershipBatchCommitter
                 $mapping['variants']
                 ?? [];
 
-            if (
-                ! is_array($variantMappings)
-            ) {
+            if (!is_array($variantMappings)) {
                 continue;
             }
 
-            foreach (
-                $variantMappings as $variantMapping
-            ) {
-                if (
-                    ! is_array($variantMapping)
-                ) {
+            foreach ($variantMappings as $variantMapping) {
+
+                if (!is_array($variantMapping)) {
                     continue;
                 }
 
@@ -574,16 +559,19 @@ final class WooCommerceOwnershipBatchCommitter
                         ?? 0
                     );
 
-                if (
-                    $variationId <= 0
-                ) {
+                if ($variationId <= 0) {
                     continue;
                 }
 
-                $variants[] = [
-                    'mapping' => $mapping,
-                    'variant' => $variantMapping,
-                ];
+                /*
+                 * IMPORTANT:
+                 *
+                 * commitVariantMapping() expects the actual
+                 * variant mapping, not a wrapper containing
+                 * parent + variant.
+                 */
+                $variants[] =
+                    $variantMapping;
             }
         }
 
@@ -594,16 +582,12 @@ final class WooCommerceOwnershipBatchCommitter
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Artifact validation.
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Validate the verified artifact.
+     * Validate the verified Step 5B artifact.
      *
      * @param array<string, mixed> $artifact
+     *
+     * @throws \RuntimeException
      */
     private function validateArtifact(
         array $artifact
@@ -618,7 +602,7 @@ final class WooCommerceOwnershipBatchCommitter
         }
 
         if (
-            ! isset(
+            !isset(
                 $artifact['verification']['pass'],
                 $artifact['ownership_dry_run']['pass']
             )
@@ -643,7 +627,9 @@ final class WooCommerceOwnershipBatchCommitter
 
         if (
             (int) (
-                $artifact['explicit_variant_ownership_count']
+                $artifact[
+                    'explicit_variant_ownership_count'
+                ]
                 ?? 0
             ) !== self::EXPECTED_VARIANTS
         ) {
@@ -653,10 +639,10 @@ final class WooCommerceOwnershipBatchCommitter
         }
 
         if (
-            ! isset(
+            !isset(
                 $artifact['adoption_mappings']
             )
-            || ! is_array(
+            || !is_array(
                 $artifact['adoption_mappings']
             )
         ) {
@@ -677,10 +663,12 @@ final class WooCommerceOwnershipBatchCommitter
     }
 
     /**
-     * Ensure the state is bound to the exact artifact.
+     * Ensure the resumable state is bound to the exact artifact.
      *
      * @param array<string, mixed> $state
      * @param array<string, mixed> $artifact
+     *
+     * @throws \RuntimeException
      */
     private function validateStateAgainstArtifact(
         array $state,
@@ -698,7 +686,8 @@ final class WooCommerceOwnershipBatchCommitter
 
         if (
             (string) $state['artifact_id']
-            !== (string) $artifact['artifact_id']
+            !==
+            (string) $artifact['artifact_id']
         ) {
             throw new \RuntimeException(
                 'Step 5B commit state is bound to a different artifact.'
@@ -707,7 +696,8 @@ final class WooCommerceOwnershipBatchCommitter
 
         if (
             (string) $state['mapping_hash']
-            !== (string) $artifact['mapping_hash']
+            !==
+            (string) $artifact['mapping_hash']
         ) {
             throw new \RuntimeException(
                 'Step 5B mapping hash does not match the commit state.'
