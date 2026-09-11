@@ -97,9 +97,24 @@ $mismatches =
         ? $result['mismatches']
         : [];
 
-$errors =
-    is_array($result['errors'] ?? null)
-        ? $result['errors']
+$missingParents =
+    is_array($missing['parents'] ?? null)
+        ? $missing['parents']
+        : [];
+
+$missingVariants =
+    is_array($missing['variants'] ?? null)
+        ? $missing['variants']
+        : [];
+
+$mismatchParents =
+    is_array($mismatches['parents'] ?? null)
+        ? $mismatches['parents']
+        : [];
+
+$mismatchVariants =
+    is_array($mismatches['variants'] ?? null)
+        ? $mismatches['variants']
         : [];
 
 /*
@@ -370,12 +385,13 @@ if ($error !== '') {
                         ?>
                         /
                         <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $expectedApproved
-                            )
-                        );
-                    </td>
+echo esc_html(
+    number_format_i18n(
+        $expectedApproved
+    )
+);
+?>
+</td>
                 </tr>
 
             </tbody>
@@ -672,8 +688,8 @@ if ($error !== '') {
         <?php endif; ?>
 
         <?php if (
-            $missing['parents'] !== []
-            || $missing['variants'] !== []
+            $missingParents !== []
+            || $missingVariants !== []
         ) : ?>
 
             <hr>
@@ -686,7 +702,7 @@ if ($error !== '') {
                 ?>
             </h2>
 
-            <?php if ($missing['parents'] !== []) : ?>
+            <?php if ($missingParents !== []) : ?>
 
                 <h3>
                     Parent Records
@@ -695,7 +711,7 @@ if ($error !== '') {
                 <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
                     echo esc_html(
                         wp_json_encode(
-                            $missing['parents'],
+                            $missingParents,
                             JSON_PRETTY_PRINT
                             | JSON_UNESCAPED_SLASHES
                             | JSON_UNESCAPED_UNICODE
@@ -705,7 +721,7 @@ if ($error !== '') {
 
             <?php endif; ?>
 
-            <?php if ($missing['variants'] !== []) : ?>
+            <?php if ($missingVariants !== []) : ?>
 
                 <h3>
                     Variant Records
@@ -714,7 +730,7 @@ if ($error !== '') {
                 <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
                     echo esc_html(
                         wp_json_encode(
-                            $missing['variants'],
+                            $missingVariants,
                             JSON_PRETTY_PRINT
                             | JSON_UNESCAPED_SLASHES
                             | JSON_UNESCAPED_UNICODE
@@ -727,8 +743,8 @@ if ($error !== '') {
         <?php endif; ?>
 
         <?php if (
-            $mismatches['parents'] !== []
-            || $mismatches['variants'] !== []
+            $mismatchParents !== []
+            || $mismatchVariants !== []
         ) : ?>
 
             <hr>
@@ -741,7 +757,7 @@ if ($error !== '') {
                 ?>
             </h2>
 
-            <?php if ($mismatches['parents'] !== []) : ?>
+            <?php if ($mismatchParents !== []) : ?>
 
                 <h3>
                     Parent Records
@@ -750,7 +766,7 @@ if ($error !== '') {
                 <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
                     echo esc_html(
                         wp_json_encode(
-                            $mismatches['parents'],
+                            $mismatchParents,
                             JSON_PRETTY_PRINT
                             | JSON_UNESCAPED_SLASHES
                             | JSON_UNESCAPED_UNICODE
@@ -760,7 +776,7 @@ if ($error !== '') {
 
             <?php endif; ?>
 
-            <?php if ($mismatches['variants'] !== []) : ?>
+            <?php if ($mismatchVariants !== []) : ?>
 
                 <h3>
                     Variant Records
