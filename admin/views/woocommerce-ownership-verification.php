@@ -375,6 +375,7 @@ if ($error !== '') {
                         <strong>Approved Mappings</strong>
                     </td>
 
+                
                     <td>
                         <?php
                         echo esc_html(
@@ -385,13 +386,13 @@ if ($error !== '') {
                         ?>
                         /
                         <?php
-echo esc_html(
-    number_format_i18n(
-        $expectedApproved
-    )
-);
-?>
-</td>
+                        echo esc_html(
+                            number_format_i18n(
+                                $expectedApproved
+                            )
+                        );
+                        ?>
+                    </td>
                 </tr>
 
             </tbody>
