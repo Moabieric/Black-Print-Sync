@@ -30,6 +30,9 @@ require_once BP_COMMERCE_PATH
     . 'projection/adoption/VerifiedAdoptionMappingStore.php';
 
 require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceOwnershipVerifier.php';
+
+require_once BP_COMMERCE_PATH
     . 'projection/woocommerce/WooCommerceOwnershipCommitter.php';
 
 require_once BP_COMMERCE_PATH

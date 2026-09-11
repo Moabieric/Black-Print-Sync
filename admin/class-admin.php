@@ -251,6 +251,37 @@ final class Admin
 
         /*
         |--------------------------------------------------------------------------
+        | Post-Ownership Verification
+        |--------------------------------------------------------------------------
+        |
+        | Independent read-only audit of the ownership committed by
+        | Step 5B.
+        |
+        | This page:
+        |
+        | - Loads the locked verified adoption artifact.
+        | - Audits WooCommerce ownership metadata.
+        | - Does not modify WooCommerce.
+        | - Does not modify the adoption artifact.
+        | - Does not reconstruct adoption mappings.
+        | - Does not perform ownership writes.
+        |
+        */
+
+        add_submenu_page(
+            'blackprint-commerce',
+            'Post-Ownership Verification',
+            'Post-Ownership Verification',
+            'manage_woocommerce',
+            'blackprint-woocommerce-ownership-verification',
+            [
+                $this,
+                'woocommerce_ownership_verification',
+            ]
+        );
+
+        /*
+        |--------------------------------------------------------------------------
         | Amrod Stock
         |--------------------------------------------------------------------------
         */
@@ -358,6 +389,57 @@ public function woocommerce_adoption(): void
     include BP_COMMERCE_PATH
         . 'admin/views/woocommerce-adoption.php';
 }
+
+    /**
+     * Render the independent post-ownership verification page.
+     *
+     * This page performs a strictly read-only audit of the ownership
+     * committed by Step 5B.
+     *
+     * The verifier:
+     *
+     * - Loads the latest verified Step 5B artifact.
+     * - Audits the authoritative adoption mappings.
+     * - Inspects existing WooCommerce ownership metadata.
+     * - Verifies parent ownership.
+     * - Verifies explicit variation ownership.
+     * - Verifies variation parent relationships.
+     *
+     * This page does NOT:
+     *
+     * - create products
+     * - update products
+     * - delete products
+     * - update ownership metadata
+     * - update SKUs
+     * - update images
+     * - modify the adoption artifact
+     * - reconstruct Step 3 mappings
+     * - invoke WooCommerceOwnershipCommitter
+     */
+    public function woocommerce_ownership_verification(): void
+    {
+        $result = null;
+
+        $error = '';
+
+        try {
+
+            $verifier =
+                new \BlackPrint\Commerce\Projection\Verification\WooCommerceOwnershipVerifier();
+
+            $result =
+                $verifier->verifyLatest();
+
+        } catch (\Throwable $exception) {
+
+            $error =
+                $exception->getMessage();
+        }
+
+        include BP_COMMERCE_PATH
+            . 'admin/views/woocommerce-ownership-verification.php';
+    }
 
     /**
      * Render the main BlackPrint Commerce dashboard.
