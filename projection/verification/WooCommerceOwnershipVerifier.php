@@ -1,68 +1,69 @@
 <?php
 
-/*
-|--------------------------------------------------------------------------
-| BlackPrint Commerce
-|--------------------------------------------------------------------------
-|
-| WooCommerce Ownership Verifier
-|
-| Post-Ownership Verification
-|
-| This class performs an independent, read-only audit of WooCommerce
-| ownership metadata against the authoritative verified adoption
-| hand-off produced before Step 5B.
-|
-| IMPORTANT:
-|
-| - This class never writes WooCommerce data.
-| - This class never changes ownership metadata.
-| - This class never creates products or variations.
-| - This class never modifies SKUs.
-| - This class never modifies images.
-| - This class never recalculates Step 3 reconciliation.
-| - This class never creates or modifies the verified adoption artifact.
-|
-| The authoritative ownership contract is:
-|
-| Parent:
-|   _blackprint_managed
-|   _blackprint_supplier
-|   _blackprint_product_id
-|   _blackprint_product_code
-|
-| Variant:
-|   _blackprint_managed
-|   _blackprint_supplier
-|   _blackprint_variant_code
-|
-*/
+declare(strict_types=1);
 
+namespace BlackPrint\Commerce\Projection\Verification;
 
-require_once BP_COMMERCE_PATH
-    . 'projection/adoption/VerifiedAdoptionMappingStore.php';
+defined('ABSPATH') || exit;
 
+use BlackPrint\Commerce\Projection\Adoption\VerifiedAdoptionMappingStore;
 
+/**
+ * WooCommerce Ownership Verifier.
+ *
+ * Post-Ownership Verification.
+ *
+ * This class performs an independent, read-only audit of WooCommerce
+ * ownership metadata against the authoritative verified adoption
+ * hand-off produced before Step 5B.
+ *
+ * IMPORTANT:
+ *
+ * - This class never writes WooCommerce data.
+ * - This class never changes ownership metadata.
+ * - This class never creates products or variations.
+ * - This class never modifies SKUs.
+ * - This class never modifies images.
+ * - This class never recalculates Step 3 reconciliation.
+ * - This class never creates or modifies the verified adoption artifact.
+ * - This class does not call WooCommerceOwnershipCommitter.
+ *
+ * The authoritative ownership contract is:
+ *
+ * Parent:
+ *   _blackprint_managed
+ *   _blackprint_supplier
+ *   _blackprint_product_id
+ *   _blackprint_product_code
+ *
+ * Variant:
+ *   _blackprint_managed
+ *   _blackprint_supplier
+ *   _blackprint_variant_code
+ *
+ * The authoritative mapping source is the verified adoption hand-off
+ * stored by VerifiedAdoptionMappingStore.
+ */
 final class WooCommerceOwnershipVerifier
 {
     /*
     |--------------------------------------------------------------------------
-    | Verification Contract
+    | Locked verification contract.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Number of approved parent adoption mappings.
+     * Number of approved adoption mappings.
      */
     private const EXPECTED_APPROVED_MAPPINGS = 3710;
 
     /**
-     * Number of WooCommerce parent ownership records expected.
+     * Number of expected parent ownership records.
      */
     private const EXPECTED_PARENT_OWNERSHIP = 3710;
 
     /**
-     * Number of explicit WooCommerce variation ownership records expected.
+     * Number of explicit WooCommerce variation ownership records.
      */
     private const EXPECTED_VARIANT_OWNERSHIP = 20265;
 
@@ -71,7 +72,7 @@ final class WooCommerceOwnershipVerifier
      *
      * This must match WooCommerceOwnershipCommitter.
      */
-    private const MANAGED = '1';
+    private const MANAGED = 'yes';
 
     /**
      * Supplier identifier.
@@ -83,7 +84,7 @@ final class WooCommerceOwnershipVerifier
 
     /*
     |--------------------------------------------------------------------------
-    | Dependencies
+    | Dependencies.
     |--------------------------------------------------------------------------
     */
 
@@ -95,7 +96,7 @@ final class WooCommerceOwnershipVerifier
 
     /*
     |--------------------------------------------------------------------------
-    | Constructor
+    | Constructor.
     |--------------------------------------------------------------------------
     */
 
@@ -113,12 +114,12 @@ final class WooCommerceOwnershipVerifier
 
     /*
     |--------------------------------------------------------------------------
-    | Public Verification API
+    | Public API.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Verify the newest valid Step 5B adoption hand-off.
+     * Verify the newest valid verified adoption hand-off.
      *
      * This method is read-only.
      *
@@ -126,51 +127,29 @@ final class WooCommerceOwnershipVerifier
      */
     public function verifyLatest(): array
     {
-        $artifact =
-            $this->mappingStore
-                ->loadLatestVerified();
+        $artifact = $this->mappingStore->loadLatestVerified();
 
         if (!is_array($artifact)) {
-            return [
-                'success' => false,
-                'status' => 'FAIL',
-                'phase' => 'POST_OWNERSHIP_VERIFICATION',
-                'message' =>
-                    'No valid verified adoption hand-off was found.',
-                'artifact' => null,
-                'expected' => [
-                    'approved_mappings' =>
-                        self::EXPECTED_APPROVED_MAPPINGS,
-                    'parent_ownership' =>
-                        self::EXPECTED_PARENT_OWNERSHIP,
-                    'variant_ownership' =>
-                        self::EXPECTED_VARIANT_OWNERSHIP,
-                ],
-                'verified' => [
-                    'approved_mappings' => 0,
-                    'parents' => 0,
-                    'variants' => 0,
-                ],
-                'errors' => [
+            return $this->failureResult(
+                'No valid verified adoption hand-off was found.',
+                [
                     [
                         'reason' =>
                             'VERIFIED_ADOPTION_ARTIFACT_NOT_FOUND',
                     ],
-                ],
-            ];
+                ]
+            );
         }
 
-        return $this->verifyPayload(
-            $artifact
-        );
+        return $this->verifyPayload($artifact);
     }
 
 
     /**
-     * Verify a specific Step 5B adoption hand-off artifact.
+     * Verify a specific verified adoption hand-off artifact.
      *
-     * The VerifiedAdoptionMappingStore performs the authoritative
-     * artifact validation before the payload reaches this verifier.
+     * The VerifiedAdoptionMappingStore performs authoritative artifact
+     * validation before the payload reaches this verifier.
      *
      * This method is read-only.
      *
@@ -181,94 +160,50 @@ final class WooCommerceOwnershipVerifier
     public function verifyArtifact(
         string $artifactId
     ): array {
-        $artifactId =
-            trim($artifactId);
+        $artifactId = trim($artifactId);
 
         if ($artifactId === '') {
-            return [
-                'success' => false,
-                'status' => 'FAIL',
-                'phase' => 'POST_OWNERSHIP_VERIFICATION',
-                'message' =>
-                    'An artifact ID is required.',
-                'artifact' => null,
-                'expected' => [
-                    'approved_mappings' =>
-                        self::EXPECTED_APPROVED_MAPPINGS,
-                    'parent_ownership' =>
-                        self::EXPECTED_PARENT_OWNERSHIP,
-                    'variant_ownership' =>
-                        self::EXPECTED_VARIANT_OWNERSHIP,
-                ],
-                'verified' => [
-                    'approved_mappings' => 0,
-                    'parents' => 0,
-                    'variants' => 0,
-                ],
-                'errors' => [
+            return $this->failureResult(
+                'An artifact ID is required.',
+                [
                     [
-                        'reason' =>
-                            'MISSING_ARTIFACT_ID',
+                        'reason' => 'MISSING_ARTIFACT_ID',
                     ],
-                ],
-            ];
+                ]
+            );
         }
 
-        $artifact =
-            $this->mappingStore->load(
-                $artifactId
-            );
+        $artifact = $this->mappingStore->load(
+            $artifactId
+        );
 
         if (!is_array($artifact)) {
-            return [
-                'success' => false,
-                'status' => 'FAIL',
-                'phase' => 'POST_OWNERSHIP_VERIFICATION',
-                'message' =>
-                    'The requested verified adoption hand-off could not be loaded or failed validation.',
-                'artifact' => [
-                    'artifact_id' =>
-                        $artifactId,
-                ],
-                'expected' => [
-                    'approved_mappings' =>
-                        self::EXPECTED_APPROVED_MAPPINGS,
-                    'parent_ownership' =>
-                        self::EXPECTED_PARENT_OWNERSHIP,
-                    'variant_ownership' =>
-                        self::EXPECTED_VARIANT_OWNERSHIP,
-                ],
-                'verified' => [
-                    'approved_mappings' => 0,
-                    'parents' => 0,
-                    'variants' => 0,
-                ],
-                'errors' => [
+            return $this->failureResult(
+                'The requested verified adoption hand-off could not be loaded or failed validation.',
+                [
                     [
                         'reason' =>
                             'VERIFIED_ADOPTION_ARTIFACT_INVALID_OR_EXPIRED',
                     ],
                 ],
-            ];
+                [
+                    'artifact_id' => $artifactId,
+                ]
+            );
         }
 
-        return $this->verifyPayload(
-            $artifact
-        );
+        return $this->verifyPayload($artifact);
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Core Verification
+    | Core verification.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Independently verify WooCommerce against a validated adoption
-     * hand-off.
-     *
-     * This method performs no writes.
+     * Independently verify the complete authoritative artifact.
      *
      * @param array<string, mixed> $artifact
      *
@@ -277,161 +212,151 @@ final class WooCommerceOwnershipVerifier
     private function verifyPayload(
         array $artifact
     ): array {
-        $preflight =
-            $this->validateArtifactContract(
-                $artifact
-            );
+        $contractErrors = $this->validateArtifactContract(
+            $artifact
+        );
 
-        if (!$preflight['pass']) {
-            return [
-                'success' => false,
-                'status' => 'FAIL',
-                'phase' => 'POST_OWNERSHIP_VERIFICATION',
-                'message' =>
-                    'Post-Ownership Verification could not begin because the verified adoption hand-off failed the verifier contract.',
-                'artifact' =>
-                    $this->artifactSummary(
-                        $artifact
-                    ),
-                'expected' => [
-                    'approved_mappings' =>
-                        self::EXPECTED_APPROVED_MAPPINGS,
-                    'parent_ownership' =>
-                        self::EXPECTED_PARENT_OWNERSHIP,
-                    'variant_ownership' =>
-                        self::EXPECTED_VARIANT_OWNERSHIP,
-                ],
-                'verified' => [
-                    'approved_mappings' =>
-                        $preflight[
-                            'approved_mappings'
-                        ],
-                    'parents' => 0,
-                    'variants' => 0,
-                ],
-                'preflight' => $preflight,
-                'errors' =>
-                    $preflight['errors'],
-            ];
+        if ($contractErrors !== []) {
+            return $this->failureResult(
+                'The verified adoption artifact does not satisfy the locked post-ownership verification contract.',
+                $contractErrors,
+                $this->artifactSummary($artifact)
+            );
         }
 
-        $adoptionMappings =
-            $artifact['adoption_mappings'];
+        $mappings = $artifact['adoption_mappings'];
+
+        if (!is_array($mappings)) {
+            return $this->failureResult(
+                'The verified adoption artifact contains no valid adoption mapping array.',
+                [
+                    [
+                        'reason' =>
+                            'INVALID_ADOPTION_MAPPING_ARRAY',
+                    ],
+                ],
+                $this->artifactSummary($artifact)
+            );
+        }
 
         $verifiedParents = 0;
+
         $verifiedVariants = 0;
 
         $parentMissing = [];
+
         $parentMismatches = [];
+
         $variantMissing = [];
+
         $variantMismatches = [];
 
-        foreach (
-            $adoptionMappings
-            as $productId => $mapping
-        ) {
-            $productId =
-                (int) $productId;
+        $mappingIndex = 0;
 
-            /*
-             * ----------------------------------------------------------
-             * Parent verification
-             * ----------------------------------------------------------
-             */
+        foreach ($mappings as $mappingKey => $mapping) {
+            $mappingIndex++;
 
-            $parentResult =
-                $this->verifyParent(
-                    $productId,
-                    $mapping
-                );
+            if (!is_array($mapping)) {
+                continue;
+            }
+
+            $woocommerceProductId = (int) (
+                $mapping['woocommerce_product_id']
+                ?? 0
+            );
+
+            $canonicalProductId = trim(
+                (string) (
+                    $mapping['canonical_product_id']
+                    ?? ''
+                )
+            );
+
+            $canonicalProductCode = trim(
+                (string) (
+                    $mapping['canonical_product_code']
+                    ?? ''
+                )
+            );
+
+            $parentResult = $this->verifyParent(
+                $woocommerceProductId,
+                $canonicalProductId,
+                $canonicalProductCode,
+                $mappingIndex,
+                $mappingKey
+            );
 
             if (
-                $parentResult['status']
+                ($parentResult['status'] ?? '')
                 === 'verified'
             ) {
                 $verifiedParents++;
-
             } elseif (
-                $parentResult['status']
+                ($parentResult['status'] ?? '')
                 === 'missing'
             ) {
-                $parentMissing[] =
-                    $parentResult;
-
+                $parentMissing[] = $parentResult;
             } else {
-                $parentMismatches[] =
-                    $parentResult;
+                $parentMismatches[] = $parentResult;
             }
 
+            $variants = $mapping['variants'] ?? [];
 
-            /*
-             * ----------------------------------------------------------
-             * Explicit variant verification
-             * ----------------------------------------------------------
-             *
-             * Simple-product mappings deliberately have no
-             * WooCommerce variation ownership record.
-             */
+            if (!is_array($variants)) {
+                continue;
+            }
 
-            $variants =
-                isset($mapping['variants'])
-                && is_array($mapping['variants'])
-                    ? $mapping['variants']
-                    : [];
-
-            foreach ($variants as $variant) {
-
+            foreach ($variants as $variantKey => $variant) {
                 if (!is_array($variant)) {
                     continue;
                 }
 
-                $variationId =
-                    isset(
-                        $variant[
-                            'woocommerce_variation_id'
-                        ]
-                    )
-                        ? (int) $variant[
-                            'woocommerce_variation_id'
-                        ]
-                        : 0;
+                $variationId = (int) (
+                    $variant['woocommerce_variation_id']
+                    ?? 0
+                );
 
+                /*
+                 * Simple-product mappings can legitimately have no
+                 * WooCommerce variation ID. These are not counted as
+                 * explicit variation ownership records.
+                 */
                 if ($variationId <= 0) {
                     continue;
                 }
 
-                $variantResult =
-                    $this->verifyVariant(
-                        $productId,
-                        $variant
-                    );
+                $canonicalVariantCode = trim(
+                    (string) (
+                        $variant['canonical_variant_code']
+                        ?? ''
+                    )
+                );
+
+                $variantResult = $this->verifyVariant(
+                    $variationId,
+                    $woocommerceProductId,
+                    $canonicalVariantCode,
+                    $mappingIndex,
+                    $mappingKey,
+                    $variantKey
+                );
 
                 if (
-                    $variantResult['status']
+                    ($variantResult['status'] ?? '')
                     === 'verified'
                 ) {
                     $verifiedVariants++;
-
                 } elseif (
-                    $variantResult['status']
+                    ($variantResult['status'] ?? '')
                     === 'missing'
                 ) {
-                    $variantMissing[] =
-                        $variantResult;
-
+                    $variantMissing[] = $variantResult;
                 } else {
-                    $variantMismatches[] =
-                        $variantResult;
+                    $variantMismatches[] = $variantResult;
                 }
             }
         }
-
-
-        /*
-         * --------------------------------------------------------------
-         * Final count validation
-         * --------------------------------------------------------------
-         */
 
         $errors = [];
 
@@ -441,10 +366,10 @@ final class WooCommerceOwnershipVerifier
         ) {
             $errors[] = [
                 'reason' =>
-                    'POST_OWNERSHIP_PARENT_COUNT_MISMATCH',
+                    'PARENT_OWNERSHIP_COUNT_MISMATCH',
                 'expected' =>
                     self::EXPECTED_PARENT_OWNERSHIP,
-                'actual' =>
+                'verified' =>
                     $verifiedParents,
             ];
         }
@@ -455,305 +380,250 @@ final class WooCommerceOwnershipVerifier
         ) {
             $errors[] = [
                 'reason' =>
-                    'POST_OWNERSHIP_VARIANT_COUNT_MISMATCH',
+                    'VARIANT_OWNERSHIP_COUNT_MISMATCH',
                 'expected' =>
                     self::EXPECTED_VARIANT_OWNERSHIP,
-                'actual' =>
+                'verified' =>
                     $verifiedVariants,
             ];
         }
 
-        if (!empty($parentMissing)) {
+        if ($parentMissing !== []) {
             $errors[] = [
                 'reason' =>
-                    'PARENT_OWNERSHIP_RECORDS_MISSING',
+                    'PARENT_OWNERSHIP_MISSING',
                 'count' =>
                     count($parentMissing),
             ];
         }
 
-        if (!empty($parentMismatches)) {
+        if ($parentMismatches !== []) {
             $errors[] = [
                 'reason' =>
-                    'PARENT_OWNERSHIP_RECORDS_MISMATCH',
+                    'PARENT_OWNERSHIP_MISMATCH',
                 'count' =>
                     count($parentMismatches),
             ];
         }
 
-        if (!empty($variantMissing)) {
+        if ($variantMissing !== []) {
             $errors[] = [
                 'reason' =>
-                    'VARIANT_OWNERSHIP_RECORDS_MISSING',
+                    'VARIANT_OWNERSHIP_MISSING',
                 'count' =>
                     count($variantMissing),
             ];
         }
 
-        if (!empty($variantMismatches)) {
+        if ($variantMismatches !== []) {
             $errors[] = [
                 'reason' =>
-                    'VARIANT_OWNERSHIP_RECORDS_MISMATCH',
+                    'VARIANT_OWNERSHIP_MISMATCH',
                 'count' =>
                     count($variantMismatches),
             ];
         }
 
-        $success =
-            count($errors) === 0;
+        $pass =
+            $errors === []
+            && $verifiedParents
+                === self::EXPECTED_PARENT_OWNERSHIP
+            && $verifiedVariants
+                === self::EXPECTED_VARIANT_OWNERSHIP;
 
         return [
-            'success' =>
-                $success,
-
-            'status' =>
-                $success
-                    ? 'PASS'
-                    : 'FAIL',
-
-            'phase' =>
-                'POST_OWNERSHIP_VERIFICATION',
-
-            'message' =>
-                $success
-                    ? 'Post-Ownership Verification passed. All approved BlackPrint ownership records were verified in WooCommerce.'
-                    : 'Post-Ownership Verification failed. One or more approved BlackPrint ownership records are missing or incorrect.',
-
+            'success' => $pass,
+            'pass' => $pass,
+            'status' => $pass ? 'PASS' : 'FAIL',
+            'phase' => 'POST_OWNERSHIP_VERIFICATION',
+            'message' => $pass
+                ? 'Post-ownership verification passed. All approved BlackPrint ownership records were independently verified.'
+                : 'Post-ownership verification failed. One or more approved BlackPrint ownership records are missing or incorrect.',
             'artifact' =>
-                $this->artifactSummary(
-                    $artifact
-                ),
-
+                $this->artifactSummary($artifact),
             'expected' => [
                 'approved_mappings' =>
                     self::EXPECTED_APPROVED_MAPPINGS,
-
                 'parent_ownership' =>
                     self::EXPECTED_PARENT_OWNERSHIP,
-
                 'variant_ownership' =>
                     self::EXPECTED_VARIANT_OWNERSHIP,
             ],
-
             'verified' => [
                 'approved_mappings' =>
-                    count($adoptionMappings),
-
+                    count($mappings),
                 'parents' =>
                     $verifiedParents,
-
                 'variants' =>
                     $verifiedVariants,
             ],
-
             'audit' => [
-                'parents_missing' =>
+                'parent_missing_count' =>
                     count($parentMissing),
-
-                'parents_mismatched' =>
+                'parent_mismatch_count' =>
                     count($parentMismatches),
-
-                'variants_missing' =>
+                'variant_missing_count' =>
                     count($variantMissing),
-
-                'variants_mismatched' =>
+                'variant_mismatch_count' =>
                     count($variantMismatches),
-
-                'total_errors' =>
-                    count($errors),
             ],
-
-            'details' => [
-                'parent_missing' =>
+            'missing' => [
+                'parents' =>
                     $parentMissing,
-
-                'parent_mismatches' =>
-                    $parentMismatches,
-
-                'variant_missing' =>
+                'variants' =>
                     $variantMissing,
-
-                'variant_mismatches' =>
+            ],
+            'mismatches' => [
+                'parents' =>
+                    $parentMismatches,
+                'variants' =>
                     $variantMismatches,
             ],
-
-            'errors' =>
-                $errors,
+            'errors' => $errors,
         ];
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Parent Verification
+    | Parent verification.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Verify one WooCommerce parent against its authoritative mapping.
+     * Verify one WooCommerce parent ownership record.
      *
-     * This method is strictly read-only.
-     *
-     * @param int $productId
-     * @param array<string, mixed> $mapping
+     * No WooCommerce writes occur here.
      *
      * @return array<string, mixed>
      */
     private function verifyParent(
-        int $productId,
-        array $mapping
+        int $woocommerceProductId,
+        string $canonicalProductId,
+        string $canonicalProductCode,
+        int $mappingIndex,
+        int|string $mappingKey
     ): array {
-        $canonicalProductId =
-            isset(
-                $mapping['canonical_product_id']
-            )
-                ? trim(
-                    (string)
-                    $mapping[
-                        'canonical_product_id'
-                    ]
-                )
-                : '';
+        $context = [
+            'mapping_index' =>
+                $mappingIndex,
+            'mapping_key' =>
+                $mappingKey,
+            'woocommerce_product_id' =>
+                $woocommerceProductId,
+            'canonical_product_id' =>
+                $canonicalProductId,
+            'canonical_product_code' =>
+                $canonicalProductCode,
+        ];
 
-        $canonicalProductCode =
-            isset(
-                $mapping['canonical_product_code']
-            )
-                ? trim(
-                    (string)
-                    $mapping[
-                        'canonical_product_code'
-                    ]
-                )
-                : '';
+        if ($woocommerceProductId <= 0) {
+            return array_merge(
+                $context,
+                [
+                    'status' => 'missing',
+                    'reason' =>
+                        'INVALID_WOOCOMMERCE_PRODUCT_ID',
+                ]
+            );
+        }
+
+        $post = get_post(
+            $woocommerceProductId
+        );
+
+        if (!$post) {
+            return array_merge(
+                $context,
+                [
+                    'status' => 'missing',
+                    'reason' =>
+                        'WOOCOMMERCE_PRODUCT_NOT_FOUND',
+                ]
+            );
+        }
 
         $expected = [
             '_blackprint_managed' =>
                 self::MANAGED,
-
             '_blackprint_supplier' =>
                 self::SUPPLIER,
-
             '_blackprint_product_id' =>
                 $canonicalProductId,
-
             '_blackprint_product_code' =>
                 $canonicalProductCode,
         ];
 
-        /*
-         * The product itself must exist.
-         */
-        $product =
-            get_post(
-                $productId
+        $actual = $this->readParentOwnership(
+            $woocommerceProductId
+        );
+
+        $comparison = $this->compareOwnership(
+            $expected,
+            $actual
+        );
+
+        if (
+            ($comparison['pass'] ?? false)
+            === true
+        ) {
+            return array_merge(
+                $context,
+                [
+                    'status' => 'verified',
+                    'expected' => $expected,
+                    'actual' => $actual,
+                ]
             );
+        }
 
-        if (!$product) {
-            return [
-                'status' =>
-                    'missing',
-
-                'woocommerce_product_id' =>
-                    $productId,
-
-                'expected' =>
-                    $expected,
-
-                'actual' =>
-                    null,
-
+        return array_merge(
+            $context,
+            [
+                'status' => 'mismatch',
                 'reason' =>
-                    'WOOCOMMERCE_PARENT_DOES_NOT_EXIST',
-            ];
-        }
-
-        $actual =
-            $this->readParentOwnership(
-                $productId
-            );
-
-        $comparison =
-            $this->compareOwnership(
-                $expected,
-                $actual
-            );
-
-        if ($comparison['pass']) {
-            return [
-                'status' =>
-                    'verified',
-
-                'woocommerce_product_id' =>
-                    $productId,
-
-                'expected' =>
-                    $expected,
-
-                'actual' =>
-                    $actual,
-            ];
-        }
-
-        return [
-            'status' =>
-                'mismatch',
-
-            'woocommerce_product_id' =>
-                $productId,
-
-            'expected' =>
-                $expected,
-
-            'actual' =>
-                $actual,
-
-            'differences' =>
-                $comparison['differences'],
-
-            'reason' =>
-                'PARENT_OWNERSHIP_MISSING_OR_INCORRECT',
-        ];
+                    'PARENT_OWNERSHIP_METADATA_MISMATCH',
+                'expected' => $expected,
+                'actual' => $actual,
+                'differences' =>
+                    $comparison['differences'],
+            ]
+        );
     }
 
 
     /**
      * Read parent ownership metadata.
      *
-     * READ ONLY.
-     *
-     * @param int $productId
+     * This method is strictly read-only.
      *
      * @return array<string, string>
      */
     private function readParentOwnership(
-        int $productId
+        int $woocommerceProductId
     ): array {
         return [
             '_blackprint_managed' =>
                 (string) get_post_meta(
-                    $productId,
+                    $woocommerceProductId,
                     '_blackprint_managed',
                     true
                 ),
-
             '_blackprint_supplier' =>
                 (string) get_post_meta(
-                    $productId,
+                    $woocommerceProductId,
                     '_blackprint_supplier',
                     true
                 ),
-
             '_blackprint_product_id' =>
                 (string) get_post_meta(
-                    $productId,
+                    $woocommerceProductId,
                     '_blackprint_product_id',
                     true
                 ),
-
             '_blackprint_product_code' =>
                 (string) get_post_meta(
-                    $productId,
+                    $woocommerceProductId,
                     '_blackprint_product_code',
                     true
                 ),
@@ -763,216 +633,143 @@ final class WooCommerceOwnershipVerifier
 
     /*
     |--------------------------------------------------------------------------
-    | Variant Verification
+    | Variant verification.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Verify one WooCommerce variation against its authoritative
-     * canonical variant mapping.
+     * Verify one WooCommerce variation ownership record.
      *
-     * This method is strictly read-only.
-     *
-     * @param int $productId
-     * @param array<string, mixed> $variant
+     * No WooCommerce writes occur here.
      *
      * @return array<string, mixed>
      */
     private function verifyVariant(
-        int $productId,
-        array $variant
+        int $variationId,
+        int $expectedParentProductId,
+        string $canonicalVariantCode,
+        int $mappingIndex,
+        int|string $mappingKey,
+        int|string $variantKey
     ): array {
-        $variationId =
-            isset(
-                $variant[
-                    'woocommerce_variation_id'
-                ]
-            )
-                ? (int) $variant[
-                    'woocommerce_variation_id'
-                ]
-                : 0;
+        $context = [
+            'mapping_index' =>
+                $mappingIndex,
+            'mapping_key' =>
+                $mappingKey,
+            'variant_key' =>
+                $variantKey,
+            'woocommerce_variation_id' =>
+                $variationId,
+            'woocommerce_product_id' =>
+                $expectedParentProductId,
+            'canonical_variant_code' =>
+                $canonicalVariantCode,
+        ];
 
-        $canonicalVariantCode =
-            isset(
-                $variant[
-                    'canonical_variant_code'
+        if ($variationId <= 0) {
+            return array_merge(
+                $context,
+                [
+                    'status' => 'missing',
+                    'reason' =>
+                        'INVALID_WOOCOMMERCE_VARIATION_ID',
                 ]
-            )
-                ? trim(
-                    (string) $variant[
-                        'canonical_variant_code'
-                    ]
-                )
-                : '';
+            );
+        }
+
+        $variation = get_post(
+            $variationId
+        );
+
+        if (!$variation) {
+            return array_merge(
+                $context,
+                [
+                    'status' => 'missing',
+                    'reason' =>
+                        'WOOCOMMERCE_VARIATION_NOT_FOUND',
+                ]
+            );
+        }
+
+        $actualParentProductId = (int) wp_get_post_parent_id(
+            $variationId
+        );
+
+        if (
+            $actualParentProductId
+            !== $expectedParentProductId
+        ) {
+            return array_merge(
+                $context,
+                [
+                    'status' => 'mismatch',
+                    'reason' =>
+                        'WOOCOMMERCE_VARIATION_PARENT_MISMATCH',
+                    'expected_parent_product_id' =>
+                        $expectedParentProductId,
+                    'actual_parent_product_id' =>
+                        $actualParentProductId,
+                ]
+            );
+        }
 
         $expected = [
             '_blackprint_managed' =>
                 self::MANAGED,
-
             '_blackprint_supplier' =>
                 self::SUPPLIER,
-
             '_blackprint_variant_code' =>
                 $canonicalVariantCode,
         ];
 
-        /*
-         * Variation must exist.
-         */
-        $variation =
-            get_post(
-                $variationId
-            );
+        $actual = $this->readVariantOwnership(
+            $variationId
+        );
 
-        if (!$variation) {
-            return [
-                'status' =>
-                    'missing',
-
-                'woocommerce_product_id' =>
-                    $productId,
-
-                'woocommerce_variation_id' =>
-                    $variationId,
-
-                'canonical_variant_code' =>
-                    $canonicalVariantCode,
-
-                'expected' =>
-                    $expected,
-
-                'actual' =>
-                    null,
-
-                'reason' =>
-                    'WOOCOMMERCE_VARIATION_DOES_NOT_EXIST',
-            ];
-        }
-
-        /*
-         * Variation must still belong to the approved parent.
-         */
-        $actualParentId =
-            (int) wp_get_post_parent_id(
-                $variationId
-            );
+        $comparison = $this->compareOwnership(
+            $expected,
+            $actual
+        );
 
         if (
-            $actualParentId
-            !== $productId
+            ($comparison['pass'] ?? false)
+            === true
         ) {
-            return [
-                'status' =>
-                    'mismatch',
+            return array_merge(
+                $context,
+                [
+                    'status' => 'verified',
+                    'expected' => $expected,
+                    'actual' => $actual,
+                    'actual_parent_product_id' =>
+                        $actualParentProductId,
+                ]
+            );
+        }
 
-                'woocommerce_product_id' =>
-                    $productId,
-
-                'woocommerce_variation_id' =>
-                    $variationId,
-
-                'canonical_variant_code' =>
-                    $canonicalVariantCode,
-
-                'expected_parent_id' =>
-                    $productId,
-
-                'actual_parent_id' =>
-                    $actualParentId,
-
-                'expected' =>
-                    $expected,
-
-                'actual' =>
-                    $this->readVariantOwnership(
-                        $variationId
-                    ),
-
+        return array_merge(
+            $context,
+            [
+                'status' => 'mismatch',
                 'reason' =>
-                    'WOOCOMMERCE_VARIATION_HAS_WRONG_PARENT',
-            ];
-        }
-
-        $actual =
-            $this->readVariantOwnership(
-                $variationId
-            );
-
-        $comparison =
-            $this->compareOwnership(
-                $expected,
-                $actual
-            );
-
-        if ($comparison['pass']) {
-            return [
-                'status' =>
-                    'verified',
-
-                'woocommerce_product_id' =>
-                    $productId,
-
-                'woocommerce_variation_id' =>
-                    $variationId,
-
-                'canonical_variant_code' =>
-                    $canonicalVariantCode,
-
-                'expected_parent_id' =>
-                    $productId,
-
-                'actual_parent_id' =>
-                    $actualParentId,
-
-                'expected' =>
-                    $expected,
-
-                'actual' =>
-                    $actual,
-            ];
-        }
-
-        return [
-            'status' =>
-                'mismatch',
-
-            'woocommerce_product_id' =>
-                $productId,
-
-            'woocommerce_variation_id' =>
-                $variationId,
-
-            'canonical_variant_code' =>
-                $canonicalVariantCode,
-
-            'expected_parent_id' =>
-                $productId,
-
-            'actual_parent_id' =>
-                $actualParentId,
-
-            'expected' =>
-                $expected,
-
-            'actual' =>
-                $actual,
-
-            'differences' =>
-                $comparison['differences'],
-
-            'reason' =>
-                'VARIANT_OWNERSHIP_MISSING_OR_INCORRECT',
-        ];
+                    'VARIANT_OWNERSHIP_METADATA_MISMATCH',
+                'expected' => $expected,
+                'actual' => $actual,
+                'differences' =>
+                    $comparison['differences'],
+                'actual_parent_product_id' =>
+                    $actualParentProductId,
+            ]
+        );
     }
 
 
     /**
-     * Read variant ownership metadata.
+     * Read variation ownership metadata.
      *
-     * READ ONLY.
-     *
-     * @param int $variationId
+     * This method is strictly read-only.
      *
      * @return array<string, string>
      */
@@ -986,14 +783,12 @@ final class WooCommerceOwnershipVerifier
                     '_blackprint_managed',
                     true
                 ),
-
             '_blackprint_supplier' =>
                 (string) get_post_meta(
                     $variationId,
                     '_blackprint_supplier',
                     true
                 ),
-
             '_blackprint_variant_code' =>
                 (string) get_post_meta(
                     $variationId,
@@ -1006,7 +801,7 @@ final class WooCommerceOwnershipVerifier
 
     /*
     |--------------------------------------------------------------------------
-    | Comparison
+    | Metadata comparison.
     |--------------------------------------------------------------------------
     */
 
@@ -1016,7 +811,13 @@ final class WooCommerceOwnershipVerifier
      * @param array<string, string> $expected
      * @param array<string, string> $actual
      *
-     * @return array<string, mixed>
+     * @return array{
+     *     pass: bool,
+     *     differences: array<string, array{
+     *         expected: string,
+     *         actual: string
+     *     }>
+     * }
      */
     private function compareOwnership(
         array $expected,
@@ -1024,33 +825,25 @@ final class WooCommerceOwnershipVerifier
     ): array {
         $differences = [];
 
-        foreach ($expected as $key => $expectedValue) {
+        foreach ($expected as $field => $expectedValue) {
+            $actualValue = (string) (
+                $actual[$field]
+                ?? ''
+            );
 
-            $actualValue =
-                $actual[$key]
-                ?? '';
-
-            if (
-                (string) $actualValue
-                !== (string) $expectedValue
-            ) {
-                $differences[] = [
-                    'field' =>
-                        $key,
-
+            if ($actualValue !== $expectedValue) {
+                $differences[$field] = [
                     'expected' =>
-                        (string) $expectedValue,
-
+                        $expectedValue,
                     'actual' =>
-                        (string) $actualValue,
+                        $actualValue,
                 ];
             }
         }
 
         return [
             'pass' =>
-                count($differences) === 0,
-
+                $differences === [],
             'differences' =>
                 $differences,
         ];
@@ -1059,335 +852,324 @@ final class WooCommerceOwnershipVerifier
 
     /*
     |--------------------------------------------------------------------------
-    | Artifact Contract Validation
+    | Artifact contract validation.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Validate the adoption payload against the Post-Ownership
-     * Verification contract.
+     * Validate the post-ownership verification artifact contract.
      *
-     * The VerifiedAdoptionMappingStore has already performed its
-     * authoritative artifact validation. This is an additional
-     * defensive validation at the verification boundary.
+     * This is an independent defensive validation layer.
      *
      * @param array<string, mixed> $artifact
      *
-     * @return array<string, mixed>
+     * @return array<int, array<string, mixed>>
      */
     private function validateArtifactContract(
         array $artifact
     ): array {
         $errors = [];
 
-        $mappings =
-            $artifact['adoption_mappings']
+        $mappings = $artifact['adoption_mappings']
             ?? null;
 
         if (!is_array($mappings)) {
             return [
-                'pass' => false,
-                'approved_mappings' => 0,
-                'parent_mappings' => 0,
-                'variant_mappings' => 0,
-                'errors' => [
-                    [
-                        'reason' =>
-                            'ADOPTION_MAPPINGS_NOT_ARRAY',
-                    ],
+                [
+                    'reason' =>
+                        'INVALID_ADOPTION_MAPPING_ARRAY',
                 ],
             ];
         }
 
-        $approvedMappingCount =
-            count($mappings);
-
         if (
-            $approvedMappingCount
+            count($mappings)
             !== self::EXPECTED_APPROVED_MAPPINGS
         ) {
             $errors[] = [
                 'reason' =>
-                    'INVALID_APPROVED_MAPPING_COUNT',
+                    'APPROVED_MAPPING_COUNT_MISMATCH',
                 'expected' =>
                     self::EXPECTED_APPROVED_MAPPINGS,
                 'actual' =>
-                    $approvedMappingCount,
+                    count($mappings),
             ];
         }
 
-        $parentMappings = 0;
-        $variantMappings = 0;
+        $explicitVariantOwnership = 0;
 
-        foreach (
-            $mappings
-            as $productId => $mapping
-        ) {
-            $productId =
-                (int) $productId;
+        $mappingIndex = 0;
 
-            if ($productId <= 0) {
-                $errors[] = [
-                    'product_id' =>
-                        $productId,
-                    'reason' =>
-                        'INVALID_WOOCOMMERCE_PRODUCT_ID',
-                ];
-
-                continue;
-            }
+        foreach ($mappings as $mappingKey => $mapping) {
+            $mappingIndex++;
 
             if (!is_array($mapping)) {
                 $errors[] = [
-                    'product_id' =>
-                        $productId,
                     'reason' =>
-                        'INVALID_ADOPTION_MAPPING',
+                        'INVALID_MAPPING_RECORD',
+                    'mapping_index' =>
+                        $mappingIndex,
+                    'mapping_key' =>
+                        $mappingKey,
                 ];
 
                 continue;
             }
 
-            if (
-                ($mapping['decision'] ?? '')
-                !== 'ADOPT'
-            ) {
-                $errors[] = [
-                    'product_id' =>
-                        $productId,
-                    'reason' =>
-                        'MAPPING_IS_NOT_APPROVED_ADOPT',
-                ];
-
-                continue;
-            }
-
-            $mappedProductId =
-                isset(
-                    $mapping[
-                        'woocommerce_product_id'
-                    ]
-                )
-                    ? (int) $mapping[
-                        'woocommerce_product_id'
-                    ]
-                    : 0;
-
-            if (
-                $mappedProductId
-                !== $productId
-            ) {
-                $errors[] = [
-                    'product_id' =>
-                        $productId,
-                    'mapped_product_id' =>
-                        $mappedProductId,
-                    'reason' =>
-                        'MAPPING_REFERENCES_DIFFERENT_WOOCOMMERCE_PRODUCT',
-                ];
-
-                continue;
-            }
-
-            $canonicalProductId =
-                isset(
-                    $mapping[
-                        'canonical_product_id'
-                    ]
-                )
-                    ? trim(
-                        (string)
-                        $mapping[
-                            'canonical_product_id'
-                        ]
+            $decision = strtoupper(
+                trim(
+                    (string) (
+                        $mapping['decision']
+                        ?? ''
                     )
-                    : '';
+                )
+            );
+
+            if ($decision !== 'ADOPT') {
+                $errors[] = [
+                    'reason' =>
+                        'NON_ADOPT_MAPPING_PRESENT',
+                    'mapping_index' =>
+                        $mappingIndex,
+                    'mapping_key' =>
+                        $mappingKey,
+                    'decision' =>
+                        $decision,
+                ];
+            }
+
+            $woocommerceProductId = (int) (
+                $mapping['woocommerce_product_id']
+                ?? 0
+            );
+
+            $mappingProductId = (int) (
+                $mappingKey
+            );
 
             if (
-                $canonicalProductId
-                === ''
+                $woocommerceProductId <= 0
+                || $woocommerceProductId
+                    !== $mappingProductId
             ) {
                 $errors[] = [
-                    'product_id' =>
-                        $productId,
+                    'reason' =>
+                        'WOOCOMMERCE_PRODUCT_KEY_MISMATCH',
+                    'mapping_index' =>
+                        $mappingIndex,
+                    'mapping_key' =>
+                        $mappingKey,
+                    'woocommerce_product_id' =>
+                        $woocommerceProductId,
+                ];
+            }
+
+            $canonicalProductId = trim(
+                (string) (
+                    $mapping['canonical_product_id']
+                    ?? ''
+                )
+            );
+
+            if ($canonicalProductId === '') {
+                $errors[] = [
                     'reason' =>
                         'MISSING_CANONICAL_PRODUCT_ID',
+                    'mapping_index' =>
+                        $mappingIndex,
+                    'mapping_key' =>
+                        $mappingKey,
                 ];
-
-                continue;
             }
 
-            $canonicalProductCode =
-                isset(
-                    $mapping[
-                        'canonical_product_code'
-                    ]
+            $canonicalProductCode = trim(
+                (string) (
+                    $mapping['canonical_product_code']
+                    ?? ''
                 )
-                    ? trim(
-                        (string)
-                        $mapping[
-                            'canonical_product_code'
-                        ]
-                    )
-                    : '';
+            );
 
-            if (
-                $canonicalProductCode
-                === ''
-            ) {
+            if ($canonicalProductCode === '') {
                 $errors[] = [
-                    'product_id' =>
-                        $productId,
                     'reason' =>
                         'MISSING_CANONICAL_PRODUCT_CODE',
+                    'mapping_index' =>
+                        $mappingIndex,
+                    'mapping_key' =>
+                        $mappingKey,
+                ];
+            }
+
+            $variants = $mapping['variants']
+                ?? [];
+
+            if (!is_array($variants)) {
+                $errors[] = [
+                    'reason' =>
+                        'INVALID_VARIANT_MAPPING_ARRAY',
+                    'mapping_index' =>
+                        $mappingIndex,
+                    'mapping_key' =>
+                        $mappingKey,
                 ];
 
                 continue;
             }
 
-            $parentMappings++;
-
-            $variants =
-                isset($mapping['variants'])
-                && is_array($mapping['variants'])
-                    ? $mapping['variants']
-                    : [];
-
-            foreach ($variants as $variant) {
-
+            foreach ($variants as $variantKey => $variant) {
                 if (!is_array($variant)) {
                     $errors[] = [
-                        'product_id' =>
-                            $productId,
                         'reason' =>
-                            'INVALID_VARIANT_MAPPING',
+                            'INVALID_VARIANT_MAPPING_RECORD',
+                        'mapping_index' =>
+                            $mappingIndex,
+                        'mapping_key' =>
+                            $mappingKey,
+                        'variant_key' =>
+                            $variantKey,
                     ];
 
                     continue;
                 }
 
-                $variationId =
-                    isset(
-                        $variant[
-                            'woocommerce_variation_id'
-                        ]
-                    )
-                        ? (int) $variant[
-                            'woocommerce_variation_id'
-                        ]
-                        : 0;
+                $variationId = (int) (
+                    $variant['woocommerce_variation_id']
+                    ?? 0
+                );
 
-                $canonicalVariantCode =
-                    isset(
-                        $variant[
-                            'canonical_variant_code'
-                        ]
-                    )
-                        ? trim(
-                            (string)
-                            $variant[
-                                'canonical_variant_code'
-                            ]
+                if ($variationId > 0) {
+                    $explicitVariantOwnership++;
+
+                    $canonicalVariantCode = trim(
+                        (string) (
+                            $variant['canonical_variant_code']
+                            ?? ''
                         )
-                        : '';
+                    );
 
-                /*
-                 * Simple product mappings intentionally contain no
-                 * WooCommerce variation ownership record.
-                 */
-                if ($variationId <= 0) {
-
-                    if (
-                        $canonicalVariantCode
-                        === ''
-                    ) {
+                    if ($canonicalVariantCode === '') {
                         $errors[] = [
-                            'product_id' =>
-                                $productId,
                             'reason' =>
-                                'SIMPLE_VARIANT_MAPPING_HAS_NO_CANONICAL_VARIANT_CODE',
+                                'MISSING_CANONICAL_VARIANT_CODE',
+                            'mapping_index' =>
+                                $mappingIndex,
+                            'mapping_key' =>
+                                $mappingKey,
+                            'variant_key' =>
+                                $variantKey,
+                            'woocommerce_variation_id' =>
+                                $variationId,
                         ];
                     }
-
-                    continue;
                 }
-
-                if (
-                    $canonicalVariantCode
-                    === ''
-                ) {
-                    $errors[] = [
-                        'product_id' =>
-                            $productId,
-                        'variation_id' =>
-                            $variationId,
-                        'reason' =>
-                            'VARIABLE_MAPPING_HAS_NO_CANONICAL_VARIANT_CODE',
-                    ];
-
-                    continue;
-                }
-
-                $variantMappings++;
             }
         }
 
         if (
-            $parentMappings
-            !== self::EXPECTED_PARENT_OWNERSHIP
-        ) {
-            $errors[] = [
-                'reason' =>
-                    'INVALID_PARENT_OWNERSHIP_COUNT',
-                'expected' =>
-                    self::EXPECTED_PARENT_OWNERSHIP,
-                'actual' =>
-                    $parentMappings,
-            ];
-        }
-
-        if (
-            $variantMappings
+            $explicitVariantOwnership
             !== self::EXPECTED_VARIANT_OWNERSHIP
         ) {
             $errors[] = [
                 'reason' =>
-                    'INVALID_VARIANT_OWNERSHIP_COUNT',
+                    'EXPLICIT_VARIANT_OWNERSHIP_COUNT_MISMATCH',
                 'expected' =>
                     self::EXPECTED_VARIANT_OWNERSHIP,
                 'actual' =>
-                    $variantMappings,
+                    $explicitVariantOwnership,
             ];
         }
 
-        return [
-            'pass' =>
-                count($errors) === 0,
+        $storedApprovedCount = (int) (
+            $artifact['approved_mapping_count']
+            ?? 0
+        );
 
-            'approved_mappings' =>
-                $approvedMappingCount,
+        if (
+            $storedApprovedCount
+            !== self::EXPECTED_APPROVED_MAPPINGS
+        ) {
+            $errors[] = [
+                'reason' =>
+                    'STORED_APPROVED_MAPPING_COUNT_MISMATCH',
+                'expected' =>
+                    self::EXPECTED_APPROVED_MAPPINGS,
+                'actual' =>
+                    $storedApprovedCount,
+            ];
+        }
 
-            'parent_mappings' =>
-                $parentMappings,
+        $storedVariantCount = (int) (
+            $artifact['explicit_variant_ownership_count']
+            ?? 0
+        );
 
-            'variant_mappings' =>
-                $variantMappings,
+        if (
+            $storedVariantCount
+            !== self::EXPECTED_VARIANT_OWNERSHIP
+        ) {
+            $errors[] = [
+                'reason' =>
+                    'STORED_VARIANT_OWNERSHIP_COUNT_MISMATCH',
+                'expected' =>
+                    self::EXPECTED_VARIANT_OWNERSHIP,
+                'actual' =>
+                    $storedVariantCount,
+            ];
+        }
 
-            'errors' =>
-                $errors,
-        ];
+        return $errors;
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Artifact Summary
+    | Result helpers.
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Return non-sensitive artifact information suitable for an
-     * admin verification result.
+     * Build a standard failure response.
+     *
+     * @param array<int, array<string, mixed>> $errors
+     * @param array<string, mixed> $artifact
+     *
+     * @return array<string, mixed>
+     */
+    private function failureResult(
+        string $message,
+        array $errors,
+        array $artifact = []
+    ): array {
+        return [
+            'success' => false,
+            'pass' => false,
+            'status' => 'FAIL',
+            'phase' => 'POST_OWNERSHIP_VERIFICATION',
+            'message' => $message,
+            'artifact' =>
+                $artifact !== []
+                    ? $artifact
+                    : null,
+            'expected' => [
+                'approved_mappings' =>
+                    self::EXPECTED_APPROVED_MAPPINGS,
+                'parent_ownership' =>
+                    self::EXPECTED_PARENT_OWNERSHIP,
+                'variant_ownership' =>
+                    self::EXPECTED_VARIANT_OWNERSHIP,
+            ],
+            'verified' => [
+                'approved_mappings' => 0,
+                'parents' => 0,
+                'variants' => 0,
+            ],
+            'errors' => $errors,
+        ];
+    }
+
+
+    /**
+     * Return safe artifact metadata for audit output.
      *
      * @param array<string, mixed> $artifact
      *
@@ -1398,68 +1180,40 @@ final class WooCommerceOwnershipVerifier
     ): array {
         return [
             'artifact_id' =>
-                isset(
+                (string) (
                     $artifact['artifact_id']
-                )
-                    ? (string)
-                        $artifact['artifact_id']
-                    : '',
-
+                    ?? ''
+                ),
             'snapshot_uuid' =>
-                isset(
+                (string) (
                     $artifact['snapshot_uuid']
-                )
-                    ? (string)
-                        $artifact['snapshot_uuid']
-                    : '',
-
+                    ?? ''
+                ),
             'mapping_hash' =>
-                isset(
+                (string) (
                     $artifact['mapping_hash']
-                )
-                    ? (string)
-                        $artifact['mapping_hash']
-                    : '',
-
+                    ?? ''
+                ),
             'approved_mapping_count' =>
-                isset(
-                    $artifact[
-                        'approved_mapping_count'
-                    ]
-                )
-                    ? (int)
-                        $artifact[
-                            'approved_mapping_count'
-                        ]
-                    : 0,
-
+                (int) (
+                    $artifact['approved_mapping_count']
+                    ?? 0
+                ),
             'explicit_variant_ownership_count' =>
-                isset(
-                    $artifact[
-                        'explicit_variant_ownership_count'
-                    ]
-                )
-                    ? (int)
-                        $artifact[
-                            'explicit_variant_ownership_count'
-                        ]
-                    : 0,
-
+                (int) (
+                    $artifact['explicit_variant_ownership_count']
+                    ?? 0
+                ),
             'created_at' =>
-                isset(
+                (int) (
                     $artifact['created_at']
-                )
-                    ? (int)
-                        $artifact['created_at']
-                    : 0,
-
+                    ?? 0
+                ),
             'expires_at' =>
-                isset(
+                (int) (
                     $artifact['expires_at']
-                )
-                    ? (int)
-                        $artifact['expires_at']
-                    : 0,
+                    ?? 0
+                ),
         ];
     }
 }
