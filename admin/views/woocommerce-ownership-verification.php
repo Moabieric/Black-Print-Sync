@@ -16,6 +16,7 @@ defined('ABSPATH') || exit;
 | - Displays the verifier result.
 | - Displays authoritative artifact metadata.
 | - Displays expected versus verified ownership counts.
+| - Displays verification errors.
 | - Displays missing ownership records.
 | - Displays ownership mismatches.
 |
@@ -95,6 +96,11 @@ $missing =
 $mismatches =
     is_array($result['mismatches'] ?? null)
         ? $result['mismatches']
+        : [];
+
+$errors =
+    is_array($result['errors'] ?? null)
+        ? $result['errors']
         : [];
 
 $missingParents =
@@ -276,10 +282,15 @@ if ($error !== '') {
                     <td>
                         <?php
                         if ($pass) {
+
                             echo '<span style="color:#008a20;font-weight:700;">PASS</span>';
+
                         } else {
+
                             echo '<span style="color:#b32d2e;font-weight:700;">';
+
                             echo esc_html($status);
+
                             echo '</span>';
                         }
                         ?>
@@ -375,7 +386,6 @@ if ($error !== '') {
                         <strong>Approved Mappings</strong>
                     </td>
 
-                
                     <td>
                         <?php
                         echo esc_html(
@@ -384,7 +394,9 @@ if ($error !== '') {
                             )
                         );
                         ?>
+
                         /
+
                         <?php
                         echo esc_html(
                             number_format_i18n(
@@ -425,407 +437,3 @@ if ($error !== '') {
                     <th>
                         Verified
                     </th>
-
-                    <th>
-                        Result
-                    </th>
-                </tr>
-
-            </thead>
-
-            <tbody>
-
-                <tr>
-
-                    <td>
-                        <strong>WooCommerce Parents</strong>
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $expectedParents
-                            )
-                        );
-                        ?>
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $verifiedParents
-                            )
-                        );
-                        ?>
-                    </td>
-
-                    <td>
-                        <?php
-                        if (
-                            $verifiedParents
-                            === $expectedParents
-                        ) {
-                            echo '<span style="color:#008a20;font-weight:700;">VERIFIED</span>';
-                        } else {
-                            echo '<span style="color:#b32d2e;font-weight:700;">MISMATCH</span>';
-                        }
-                        ?>
-                    </td>
-
-                </tr>
-
-                <tr>
-
-                    <td>
-                        <strong>WooCommerce Variations</strong>
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $expectedVariants
-                            )
-                        );
-                        ?>
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $verifiedVariants
-                            )
-                        );
-                        ?>
-                    </td>
-
-                    <td>
-                        <?php
-                        if (
-                            $verifiedVariants
-                            === $expectedVariants
-                        ) {
-                            echo '<span style="color:#008a20;font-weight:700;">VERIFIED</span>';
-                        } else {
-                            echo '<span style="color:#b32d2e;font-weight:700;">MISMATCH</span>';
-                        }
-                        ?>
-                    </td>
-
-                </tr>
-
-            </tbody>
-
-        </table>
-
-        <hr>
-
-        <h2>
-            <?php
-            echo esc_html(
-                'Audit Findings'
-            );
-            ?>
-        </h2>
-
-        <table class="widefat striped" style="max-width: 1000px;">
-
-            <thead>
-
-                <tr>
-                    <th>
-                        Finding
-                    </th>
-
-                    <th>
-                        Count
-                    </th>
-                </tr>
-
-            </thead>
-
-            <tbody>
-
-                <tr>
-                    <td>
-                        Parent ownership missing
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $parentMissingCount
-                            )
-                        );
-                        ?>
-                    </td>
-                </tr>
-
-                <tr>
-                    <td>
-                        Parent ownership mismatch
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $parentMismatchCount
-                            )
-                        );
-                        ?>
-                    </td>
-                </tr>
-
-                <tr>
-                    <td>
-                        Variant ownership missing
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $variantMissingCount
-                            )
-                        );
-                        ?>
-                    </td>
-                </tr>
-
-                <tr>
-                    <td>
-                        Variant ownership mismatch
-                    </td>
-
-                    <td>
-                        <?php
-                        echo esc_html(
-                            number_format_i18n(
-                                $variantMismatchCount
-                            )
-                        );
-                    ?>
-                    </td>
-                </tr>
-
-            </tbody>
-
-        </table>
-
-        <?php if ($errors !== []) : ?>
-
-            <hr>
-
-            <h2>
-                <?php
-                echo esc_html(
-                    'Verification Errors'
-                );
-                ?>
-            </h2>
-
-            <table class="widefat striped">
-
-                <thead>
-
-                    <tr>
-                        <th>
-                            Reason
-                        </th>
-
-                        <th>
-                            Details
-                        </th>
-                    </tr>
-
-                </thead>
-
-                <tbody>
-
-                    <?php foreach ($errors as $verificationError) : ?>
-
-                        <tr>
-
-                            <td>
-                                <strong>
-                                    <?php
-                                    echo esc_html(
-                                        (string) (
-                                            $verificationError['reason']
-                                            ?? 'UNKNOWN'
-                                        )
-                                    );
-                                    ?>
-                                </strong>
-                            </td>
-
-                            <td>
-                                <code>
-                                    <?php
-                                    echo esc_html(
-                                        wp_json_encode(
-                                            $verificationError,
-                                            JSON_UNESCAPED_SLASHES
-                                            | JSON_UNESCAPED_UNICODE
-                                        )
-                                    );
-                                    ?>
-                                </code>
-                            </td>
-
-                        </tr>
-
-                    <?php endforeach; ?>
-
-                </tbody>
-
-            </table>
-
-        <?php endif; ?>
-
-        <?php if (
-            $missingParents !== []
-            || $missingVariants !== []
-        ) : ?>
-
-            <hr>
-
-            <h2>
-                <?php
-                echo esc_html(
-                    'Missing Ownership Records'
-                );
-                ?>
-            </h2>
-
-            <?php if ($missingParents !== []) : ?>
-
-                <h3>
-                    Parent Records
-                </h3>
-
-                <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
-                    echo esc_html(
-                        wp_json_encode(
-                            $missingParents,
-                            JSON_PRETTY_PRINT
-                            | JSON_UNESCAPED_SLASHES
-                            | JSON_UNESCAPED_UNICODE
-                        )
-                    );
-                ?></pre>
-
-            <?php endif; ?>
-
-            <?php if ($missingVariants !== []) : ?>
-
-                <h3>
-                    Variant Records
-                </h3>
-
-                <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
-                    echo esc_html(
-                        wp_json_encode(
-                            $missingVariants,
-                            JSON_PRETTY_PRINT
-                            | JSON_UNESCAPED_SLASHES
-                            | JSON_UNESCAPED_UNICODE
-                        )
-                    );
-                ?></pre>
-
-            <?php endif; ?>
-
-        <?php endif; ?>
-
-        <?php if (
-            $mismatchParents !== []
-            || $mismatchVariants !== []
-        ) : ?>
-
-            <hr>
-
-            <h2>
-                <?php
-                echo esc_html(
-                    'Ownership Mismatches'
-                );
-                ?>
-            </h2>
-
-            <?php if ($mismatchParents !== []) : ?>
-
-                <h3>
-                    Parent Records
-                </h3>
-
-                <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
-                    echo esc_html(
-                        wp_json_encode(
-                            $mismatchParents,
-                            JSON_PRETTY_PRINT
-                            | JSON_UNESCAPED_SLASHES
-                            | JSON_UNESCAPED_UNICODE
-                        )
-                    );
-                ?></pre>
-
-            <?php endif; ?>
-
-            <?php if ($mismatchVariants !== []) : ?>
-
-                <h3>
-                    Variant Records
-                </h3>
-
-                <pre style="max-height: 500px; overflow: auto; background:#f6f7f7; padding:15px;"><?php
-                    echo esc_html(
-                        wp_json_encode(
-                            $mismatches['variants'],
-                            JSON_PRETTY_PRINT
-                            | JSON_UNESCAPED_SLASHES
-                            | JSON_UNESCAPED_UNICODE
-                        )
-                    );
-                ?></pre>
-
-            <?php endif; ?>
-
-        <?php endif; ?>
-
-    <?php elseif ($error !== '') : ?>
-
-        <div class="notice notice-error">
-
-            <p>
-                <strong>
-                    Verification could not be completed.
-                </strong>
-            </p>
-
-            <p>
-                <?php
-                echo esc_html($error);
-                ?>
-            </p>
-
-        </div>
-
-    <?php else : ?>
-
-        <div class="notice notice-warning">
-
-            <p>
-                No verification result is available.
-            </p>
-
-        </div>
-
-    <?php endif; ?>
-
-</div>
