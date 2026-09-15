@@ -228,7 +228,7 @@ defined('ABSPATH') || exit;
                         echo esc_html(
                             number_format_i18n(
                                 (int) (
-                                    $summary['owned_woocommerce_parents']
+                                    $summary['owned_woocommerce_parent_records']
                                     ?? 0
                                 )
                             )
