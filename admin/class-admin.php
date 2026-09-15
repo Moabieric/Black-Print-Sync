@@ -279,6 +279,38 @@ final class Admin
                 'woocommerce_ownership_verification',
             ]
         );
+git diff --check
+        /*
+        |--------------------------------------------------------------------------
+        | Image Health Audit
+        |--------------------------------------------------------------------------
+        |
+        | Independent read-only audit of WooCommerce product media against
+        | the normalized BlackPrint canonical snapshot.
+        |
+        | This page:
+        |
+        | - Normalizes the verified snapshot.
+        | - Audits existing WooCommerce image state.
+        | - Identifies deterministic image repair candidates.
+        | - Does not modify WooCommerce.
+        | - Does not modify ownership metadata.
+        | - Does not download or create media.
+        | - Does not reconstruct adoption mappings.
+        |
+        */
+
+        add_submenu_page(
+            'blackprint-commerce',
+            'Image Health Audit',
+            'Image Health Audit',
+            'manage_woocommerce',
+            'blackprint-woocommerce-image-health',
+            [
+                $this,
+                'woocommerce_image_health',
+            ]
+        );
 
         /*
         |--------------------------------------------------------------------------
@@ -439,6 +471,95 @@ public function woocommerce_adoption(): void
 
         include BP_COMMERCE_PATH
             . 'admin/views/woocommerce-ownership-verification.php';
+    }
+
+        /**
+     * Render the independent WooCommerce image health audit page.
+     *
+     * Step 6 is strictly read-only.
+     *
+     * The audit:
+     *
+     * - Uses the verified BlackPrint snapshot.
+     * - Normalizes that snapshot through the existing normalization service.
+     * - Compares canonical media against existing WooCommerce media.
+     * - Identifies deterministic repair candidates.
+     *
+     * This page does NOT:
+     *
+     * - create products
+     * - update products
+     * - delete products
+     * - update ownership metadata
+     * - update SKUs
+     * - download images
+     * - create attachments
+     * - replace images
+     * - reconstruct Step 3 mappings
+     * - rerun Step 5B
+     */
+    public function woocommerce_image_health(): void
+    {
+        $snapshotUuid =
+            'e1feb722-4844-4561-bb22-a199a57522d9';
+
+        $normalizationResult = null;
+
+        $auditResult = null;
+
+        $error = '';
+
+        try {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Normalize Verified Snapshot
+            |--------------------------------------------------------------------------
+            */
+
+            $normalizationResult =
+                bp_commerce()
+                    ->normalization()
+                    ->normalize(
+                        $snapshotUuid
+                    );
+
+            if (
+                ! $normalizationResult->success()
+            ) {
+                throw new \RuntimeException(
+                    'Normalization failed: ' .
+                    (
+                        $normalizationResult->errors()[0]
+                        ?? 'Unknown normalization error.'
+                    )
+                );
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Run Read-Only Image Health Audit
+            |--------------------------------------------------------------------------
+            */
+
+            $auditor =
+                new \BlackPrint\Commerce\Projection\Verification\WooCommerceImageHealthAuditor();
+
+            $auditResult =
+                $auditor->audit(
+                    $snapshotUuid,
+                    $normalizationResult
+                );
+
+        } catch (\Throwable $exception) {
+
+            $error =
+                $exception->getMessage();
+        }
+
+        include BP_COMMERCE_PATH
+            . 'admin/views/woocommerce-image-health.php';
     }
 
     /**
