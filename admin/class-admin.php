@@ -279,7 +279,7 @@ final class Admin
                 'woocommerce_ownership_verification',
             ]
         );
-git diff --check
+        
         /*
         |--------------------------------------------------------------------------
         | Image Health Audit
