@@ -239,6 +239,63 @@ defined('ABSPATH') || exit;
 
                 <tr>
                     <td>
+                        <?php echo esc_html('Adopted canonical products'); ?>
+                    </td>
+
+                    <td>
+                        <?php
+                        echo esc_html(
+                            number_format_i18n(
+                                (int) (
+                                    $summary['adopted_canonical_products']
+                                    ?? 0
+                                )
+                            )
+                        );
+                        ?>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <?php echo esc_html('Duplicate ownership code groups'); ?>
+                    </td>
+
+                    <td>
+                        <?php
+                        echo esc_html(
+                            number_format_i18n(
+                                (int) (
+                                    $summary['duplicate_ownership_code_groups']
+                                    ?? 0
+                                )
+                            )
+                        );
+                        ?>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
+                        <?php echo esc_html('Duplicate ownership records'); ?>
+                    </td>
+
+                    <td>
+                        <?php
+                        echo esc_html(
+                            number_format_i18n(
+                                (int) (
+                                    $summary['duplicate_ownership_records']
+                                    ?? 0
+                                )
+                            )
+                        );
+                        ?>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>
                         <?php echo esc_html('Canonical products with images'); ?>
                     </td>
 
