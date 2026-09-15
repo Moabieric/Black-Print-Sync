@@ -22,6 +22,7 @@ defined('ABSPATH') || exit;
  * - Identify canonical products without normal product images.
  * - Identify colour-image-only products.
  * - Produce explicit repair candidates for Step 7.
+ * - Report duplicate WooCommerce ownership records separately.
  *
  * HARD SAFETY BOUNDARY:
  *
@@ -43,6 +44,15 @@ defined('ABSPATH') || exit;
  *
  * Existing WooCommerce products are inspected only through their
  * already-committed BlackPrint ownership metadata.
+ *
+ * IMPORTANT:
+ *
+ * Canonical products are the primary unit of counting in this audit.
+ *
+ * If one canonical product has more than one WooCommerce product record
+ * carrying the same committed BlackPrint ownership code, the canonical
+ * product is counted once as adopted. The additional WooCommerce records
+ * are reported separately as duplicate ownership records.
  */
 final class WooCommerceImageHealthAuditor
 {
@@ -59,7 +69,12 @@ final class WooCommerceImageHealthAuditor
     /**
      * Audit a normalized canonical snapshot.
      *
-     * @param string            $snapshotUuid
+     * Canonical products are the primary counting unit.
+     *
+     * WooCommerce product records are tracked separately so that duplicate
+     * ownership records do not inflate the adopted canonical product count.
+     *
+     * @param string              $snapshotUuid
      * @param NormalizationResult $normalizationResult
      *
      * @return array<string, mixed>
@@ -75,6 +90,12 @@ final class WooCommerceImageHealthAuditor
         }
 
         $products = $normalizationResult->products();
+
+        $adoptedCanonicalCodes = [];
+
+        $ownedWooProductIds = [];
+
+        $duplicateOwnershipGroups = [];
 
         $report = [
             'success' => true,
@@ -93,33 +114,68 @@ final class WooCommerceImageHealthAuditor
 
             'summary' => [
                 'canonical_products' => 0,
-                'owned_woocommerce_parents' => 0,
+
+                'adopted_canonical_products' => 0,
+
                 'canonical_products_with_images' => 0,
+
                 'canonical_products_without_images' => 0,
+
                 'woocommerce_products_with_usable_images' => 0,
+
                 'woocommerce_products_missing_images' => 0,
+
                 'woocommerce_products_with_broken_images' => 0,
+
                 'healthy' => 0,
+
                 'repairable' => 0,
+
                 'colour_image_only' => 0,
+
                 'ambiguous' => 0,
+
                 'not_adopted' => 0,
+
+                /*
+                 * These are WooCommerce ownership record counts.
+                 * They are deliberately separate from canonical-product
+                 * counts.
+                 */
+                'owned_woocommerce_parent_records' => 0,
+
+                'duplicate_ownership_code_groups' => 0,
+
+                'duplicate_ownership_records' => 0,
             ],
 
             'products' => [],
 
             'repair_candidates' => [],
 
+            'duplicate_ownership_groups' => [],
+
             'warnings' => [],
         ];
 
-        for ($index = 0; $index < $products->count(); $index++) {
-            $canonicalProduct = $products->get($index);
+        for (
+            $index = 0;
+            $index < $products->count();
+            $index++
+        ) {
+            $canonicalProduct =
+                $products->get($index);
 
-            if (!$canonicalProduct instanceof CanonicalProduct) {
+            if (
+                !$canonicalProduct
+                instanceof CanonicalProduct
+            ) {
                 $report['warnings'][] = [
-                    'type' => 'invalid_canonical_product',
-                    'index' => $index,
+                    'type' =>
+                        'invalid_canonical_product',
+
+                    'index' =>
+                        $index,
                 ];
 
                 $report['summary']['ambiguous']++;
@@ -127,11 +183,14 @@ final class WooCommerceImageHealthAuditor
                 continue;
             }
 
+            /*
+             * Canonical products are the primary unit of the audit.
+             *
+             * This counter must therefore increment exactly once for each
+             * valid canonical product, regardless of how many WooCommerce
+             * records happen to match it.
+             */
             $report['summary']['canonical_products']++;
-
-            $canonical = $canonicalProduct->toArray();
-
-            $identity = $canonicalProduct->identity();
 
             $canonicalCode =
                 $this->extractCanonicalCode(
@@ -140,12 +199,16 @@ final class WooCommerceImageHealthAuditor
 
             $canonicalImages =
                 $this->extractMediaItems(
-                    $canonicalProduct->media()['images'] ?? []
+                    $canonicalProduct
+                        ->media()['images']
+                        ?? []
                 );
 
             $canonicalColourImages =
                 $this->extractMediaItems(
-                    $canonicalProduct->media()['colour_images'] ?? []
+                    $canonicalProduct
+                        ->media()['colour_images']
+                        ?? []
                 );
 
             $hasCanonicalImages =
@@ -155,11 +218,14 @@ final class WooCommerceImageHealthAuditor
                 !empty($canonicalColourImages);
 
             if ($hasCanonicalImages) {
-                $report['summary']['canonical_products_with_images']++;
+                $report['summary']
+                    ['canonical_products_with_images']++;
             } elseif ($hasCanonicalColourImages) {
-                $report['summary']['colour_image_only']++;
+                $report['summary']
+                    ['colour_image_only']++;
             } else {
-                $report['summary']['canonical_products_without_images']++;
+                $report['summary']
+                    ['canonical_products_without_images']++;
             }
 
             /*
@@ -191,9 +257,83 @@ final class WooCommerceImageHealthAuditor
                 continue;
             }
 
-            foreach ($wooProductIds as $wooProductId) {
-                $report['summary']['owned_woocommerce_parents']++;
+            /*
+             * This canonical product has at least one existing WooCommerce
+             * ownership record.
+             *
+             * Count the canonical product once.
+             */
+            if ($canonicalCode !== '') {
+                $adoptedCanonicalCodes[
+                    $canonicalCode
+                ] = true;
+            } else {
+                /*
+                 * A canonical product with an empty canonical code can still
+                 * be observed through WooCommerce IDs, but it cannot safely
+                 * participate in duplicate-code grouping.
+                 *
+                 * The canonical product is still counted as adopted because
+                 * findOwnedWooProducts() already established the relationship.
+                 */
+                $adoptedCanonicalCodes[
+                    'canonical_index_' . $index
+                ] = true;
+            }
 
+            /*
+             * Every matching WooCommerce product record is tracked
+             * independently.
+             *
+             * This is intentionally separate from adopted_canonical_codes.
+             */
+            foreach ($wooProductIds as $wooProductId) {
+                $ownedWooProductIds[
+                    $wooProductId
+                ] = true;
+            }
+
+            /*
+             * More than one WooCommerce product for the same canonical code
+             * is a duplicate ownership condition.
+             *
+             * This is diagnostic only.
+             *
+             * No ownership metadata is changed here.
+             */
+            if (
+                $canonicalCode !== ''
+                && count($wooProductIds) > 1
+            ) {
+                $duplicateOwnershipGroups[
+                    $canonicalCode
+                ] = [
+                    'canonical_code' =>
+                        $canonicalCode,
+
+                    'woocommerce_product_ids' =>
+                        array_values(
+                            array_map(
+                                'absint',
+                                $wooProductIds
+                            )
+                        ),
+
+                    'count' =>
+                        count($wooProductIds),
+                ];
+            }
+
+            /*
+             * Image health remains canonical-product-first.
+             *
+             * Each matching WooCommerce record is inspected so that the
+             * detailed report and repair candidates identify the exact
+             * WooCommerce product requiring attention.
+             *
+             * The adopted canonical product counter is NOT incremented here.
+             */
+            foreach ($wooProductIds as $wooProductId) {
                 $wooState =
                     $this->inspectWooImages(
                         $wooProductId
@@ -210,8 +350,11 @@ final class WooCommerceImageHealthAuditor
                     case 'HEALTHY':
                         $report['summary']['healthy']++;
 
-                        if ($wooState['usable_image']) {
-                            $report['summary']['woocommerce_products_with_usable_images']++;
+                        if (
+                            $wooState['usable_image']
+                        ) {
+                            $report['summary']
+                                ['woocommerce_products_with_usable_images']++;
                         }
 
                         break;
@@ -220,8 +363,11 @@ final class WooCommerceImageHealthAuditor
                         break;
 
                     case 'MISSING_WOOCOMMERCE':
-                        $report['summary']['woocommerce_products_missing_images']++;
-                        $report['summary']['repairable']++;
+                        $report['summary']
+                            ['woocommerce_products_missing_images']++;
+
+                        $report['summary']
+                            ['repairable']++;
 
                         $report['repair_candidates'][] =
                             $this->buildRepairCandidate(
@@ -236,8 +382,11 @@ final class WooCommerceImageHealthAuditor
                         break;
 
                     case 'BROKEN_WOOCOMMERCE':
-                        $report['summary']['woocommerce_products_with_broken_images']++;
-                        $report['summary']['repairable']++;
+                        $report['summary']
+                            ['woocommerce_products_with_broken_images']++;
+
+                        $report['summary']
+                            ['repairable']++;
 
                         $report['repair_candidates'][] =
                             $this->buildRepairCandidate(
@@ -252,7 +401,10 @@ final class WooCommerceImageHealthAuditor
                         break;
 
                     case 'CANONICAL_COLOUR_ONLY':
-                        // Already counted during canonical media classification.
+                        /*
+                         * Already counted during canonical media
+                         * classification.
+                         */
                         break;
 
                     case 'AMBIGUOUS':
@@ -274,6 +426,57 @@ final class WooCommerceImageHealthAuditor
                     );
             }
         }
+
+        /*
+         * Finalize canonical-first adoption counts.
+         */
+        $report['summary']
+            ['adopted_canonical_products'] =
+                count(
+                    $adoptedCanonicalCodes
+                );
+
+        /*
+         * Finalize WooCommerce ownership record counts separately.
+         */
+        $report['summary']
+            ['owned_woocommerce_parent_records'] =
+                count(
+                    $ownedWooProductIds
+                );
+
+        /*
+         * Finalize duplicate ownership diagnostics.
+         */
+        $report['summary']
+            ['duplicate_ownership_code_groups'] =
+                count(
+                    $duplicateOwnershipGroups
+                );
+
+        $report['summary']
+            ['duplicate_ownership_records'] =
+                array_sum(
+                    array_map(
+                        static function (
+                            array $group
+                        ): int {
+                            return max(
+                                0,
+                                (int) (
+                                    $group['count']
+                                    ?? 0
+                                ) - 1
+                            );
+                        },
+                        $duplicateOwnershipGroups
+                    )
+                );
+
+        $report['duplicate_ownership_groups'] =
+            array_values(
+                $duplicateOwnershipGroups
+            );
 
         return $report;
     }
@@ -327,7 +530,6 @@ final class WooCommerceImageHealthAuditor
 
                                 'compare' =>
                                     '=',
-
                             ],
 
                             [
@@ -339,7 +541,6 @@ final class WooCommerceImageHealthAuditor
 
                                 'compare' =>
                                     '=',
-
                             ],
 
                             [
@@ -355,7 +556,6 @@ final class WooCommerceImageHealthAuditor
 
                                     'compare' =>
                                         '=',
-
                                 ],
 
                                 [
@@ -367,7 +567,6 @@ final class WooCommerceImageHealthAuditor
 
                                     'compare' =>
                                         '=',
-
                                 ],
                             ],
                         ],
@@ -428,11 +627,9 @@ final class WooCommerceImageHealthAuditor
                 $thumbnailId
             );
 
-        $usableGallery =
-            [];
+        $usableGallery = [];
 
-        $brokenGallery =
-            [];
+        $brokenGallery = [];
 
         foreach ($galleryIds as $attachmentId) {
             if (
@@ -702,38 +899,38 @@ final class WooCommerceImageHealthAuditor
     }
 
     /**
- * Extract the canonical supplier product code.
- *
- * The canonical identity contract uses:
- *
- * - supplier_product_id   = Amrod simpleCode
- * - supplier_product_code = Amrod fullCode
- *
- * WooCommerce ownership metadata `_blackprint_product_code`
- * is committed from supplier_product_code, so image-health
- * matching must use that same canonical identity field.
- */
-private function extractCanonicalCode(
-    CanonicalProduct $canonicalProduct
-): string {
-    $identity =
-        $canonicalProduct->identity();
+     * Extract the canonical supplier product code.
+     *
+     * The canonical identity contract uses:
+     *
+     * - supplier_product_id   = Amrod simpleCode
+     * - supplier_product_code = Amrod fullCode
+     *
+     * WooCommerce ownership metadata `_blackprint_product_code`
+     * is committed from supplier_product_code, so image-health
+     * matching must use that same canonical identity field.
+     */
+    private function extractCanonicalCode(
+        CanonicalProduct $canonicalProduct
+    ): string {
+        $identity =
+            $canonicalProduct->identity();
 
-    $candidate =
-        $identity['supplier_product_code']
-        ?? null;
+        $candidate =
+            $identity['supplier_product_code']
+            ?? null;
 
-    if (
-        is_scalar($candidate)
-        && trim((string) $candidate) !== ''
-    ) {
-        return trim(
-            (string) $candidate
-        );
+        if (
+            is_scalar($candidate)
+            && trim((string) $candidate) !== ''
+        ) {
+            return trim(
+                (string) $candidate
+            );
+        }
+
+        return '';
     }
-
-    return '';
-}
 
     /**
      * Normalize media items without assuming a single supplier payload shape.
