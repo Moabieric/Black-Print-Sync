@@ -38,6 +38,15 @@ final class Admin
                 'run_amrod_product_ingestion_test',
             ]
         );
+
+        add_action(
+            'admin_post_bp_test_canonical_primary_image_resolver',
+            [
+                $this,
+                'test_canonical_primary_image_resolver',
+            ]
+        );
+
         add_action(
             'admin_post_bp_verify_snapshot_integrity',
             [
@@ -204,6 +213,17 @@ final class Admin
             ]
         );
 
+        add_submenu_page(
+            'blackprint-commerce',
+            'Canonical Primary Image Resolver',
+            'Primary Image Resolver',
+            'manage_woocommerce',
+            'blackprint-canonical-primary-image-resolver',
+            [
+                $this,
+                'canonical_primary_image_resolver',
+            ]
+        );
 
         /*
         |--------------------------------------------------------------------------
@@ -473,7 +493,7 @@ public function woocommerce_adoption(): void
             . 'admin/views/woocommerce-ownership-verification.php';
     }
 
-        /**
+    /**
      * Render the independent WooCommerce image health audit page.
      *
      * Step 6 is strictly read-only.
@@ -498,8 +518,8 @@ public function woocommerce_adoption(): void
      * - reconstruct Step 3 mappings
      * - rerun Step 5B
      */
-    public function woocommerce_image_health(): void
-    {
+        public function woocommerce_image_health(): void
+        {
         $snapshotUuid =
             'e1feb722-4844-4561-bb22-a199a57522d9';
 
@@ -561,6 +581,321 @@ public function woocommerce_adoption(): void
         include BP_COMMERCE_PATH
             . 'admin/views/woocommerce-image-health.php';
     }
+
+    /**
+ * Test the canonical primary image resolver against the real snapshot.
+ *
+ * Step 7A — Read-only diagnostic.
+ *
+ * This action:
+ *
+ * - Loads the immutable BlackPrint snapshot.
+ * - Normalizes the snapshot.
+ * - Evaluates canonical product images through
+ *   CanonicalPrimaryImageResolver.
+ * - Reports deterministic resolution results.
+ *
+ * HARD SAFETY BOUNDARY:
+ *
+ * - Does not modify WooCommerce.
+ * - Does not create attachments.
+ * - Does not download images.
+ * - Does not assign featured images.
+ * - Does not modify ownership.
+ * - Does not modify products.
+ * - Does not modify the snapshot.
+ * - Does not reconstruct adoption mappings.
+ * - Does not execute Step 5B.
+ * - Does not execute Step 7B.
+ */
+public function test_canonical_primary_image_resolver(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to run the canonical primary image resolver diagnostic.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_test_canonical_primary_image_resolver'
+    );
+
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    $result = [
+        'success' => false,
+        'read_only' => true,
+        'snapshot_uuid' => $snapshotUuid,
+        'normalized' => 0,
+        'normalization_error_count' => 0,
+        'resolver_counts' => [
+            'resolved' => 0,
+            'no_default_image' => 0,
+            'ambiguous_primary_image' => 0,
+            'primary_image_url_unavailable' => 0,
+        ],
+        'resolved_samples' => [],
+        'failure_samples' => [],
+        'error' => '',
+    ];
+
+    try {
+
+        $normalizationResult =
+            bp_commerce()
+                ->normalization()
+                ->normalize(
+                    $snapshotUuid
+                );
+
+        $result['normalized'] =
+            $normalizationResult->normalized();
+
+        $result['normalization_error_count'] =
+            count(
+                $normalizationResult->errors()
+            );
+
+        if (
+            ! $normalizationResult->success()
+        ) {
+            throw new \RuntimeException(
+                'Normalization failed: ' .
+                (
+                    $normalizationResult->errors()[0]
+                    ?? 'Unknown normalization error.'
+                )
+            );
+        }
+
+        $resolver =
+            new \BlackPrint\Commerce\Projection\Media\CanonicalPrimaryImageResolver();
+
+        $products =
+            $normalizationResult->products();
+
+        for (
+            $index = 0;
+            $index < $products->count();
+            $index++
+        ) {
+
+            $canonicalProduct =
+                $products->get(
+                    $index
+                );
+
+            if (
+                ! $canonicalProduct
+                instanceof \BlackPrint\Commerce\Normalization\DTO\CanonicalProduct
+            ) {
+                continue;
+            }
+
+            $identity =
+                $canonicalProduct->identity();
+
+            $canonicalCode =
+                $identity['supplier_product_code']
+                ?? '';
+
+            if (
+                ! is_scalar(
+                    $canonicalCode
+                )
+            ) {
+                $canonicalCode = '';
+            }
+
+            $canonicalCode =
+                trim(
+                    (string) $canonicalCode
+                );
+
+            $images =
+                $canonicalProduct
+                    ->media()['images']
+                    ?? [];
+
+            if (
+                ! is_array(
+                    $images
+                )
+            ) {
+                $images = [];
+            }
+
+            $resolution =
+                $resolver->resolve(
+                    $images
+                );
+
+            $status =
+                (string) (
+                    $resolution['status']
+                    ?? 'UNKNOWN'
+                );
+
+            switch ($status) {
+
+                case 'RESOLVED':
+
+                    $result['resolver_counts']['resolved']++;
+
+                    if (
+                        count(
+                            $result['resolved_samples']
+                        ) < 10
+                    ) {
+                        $result['resolved_samples'][] = [
+                            'index' =>
+                                $index,
+
+                            'canonical_code' =>
+                                $canonicalCode,
+
+                            'url' =>
+                                (string) (
+                                    $resolution['url']
+                                    ?? ''
+                                ),
+                        ];
+                    }
+
+                    break;
+
+                case 'NO_DEFAULT_IMAGE':
+
+                    $result['resolver_counts']
+                        ['no_default_image']++;
+
+                    if (
+                        count(
+                            $result['failure_samples']
+                        ) < 20
+                    ) {
+                        $result['failure_samples'][] = [
+                            'index' =>
+                                $index,
+
+                            'canonical_code' =>
+                                $canonicalCode,
+
+                            'status' =>
+                                $status,
+                        ];
+                    }
+
+                    break;
+
+                case 'AMBIGUOUS_PRIMARY_IMAGE':
+
+                    $result['resolver_counts']
+                        ['ambiguous_primary_image']++;
+
+                    if (
+                        count(
+                            $result['failure_samples']
+                        ) < 20
+                    ) {
+                        $result['failure_samples'][] = [
+                            'index' =>
+                                $index,
+
+                            'canonical_code' =>
+                                $canonicalCode,
+
+                            'status' =>
+                                $status,
+                        ];
+                    }
+
+                    break;
+
+                case 'PRIMARY_IMAGE_URL_UNAVAILABLE':
+
+                    $result['resolver_counts']
+                        ['primary_image_url_unavailable']++;
+
+                    if (
+                        count(
+                            $result['failure_samples']
+                        ) < 20
+                    ) {
+                        $result['failure_samples'][] = [
+                            'index' =>
+                                $index,
+
+                            'canonical_code' =>
+                                $canonicalCode,
+
+                            'status' =>
+                                $status,
+                        ];
+                    }
+
+                    break;
+
+                default:
+
+                    if (
+                        count(
+                            $result['failure_samples']
+                        ) < 20
+                    ) {
+                        $result['failure_samples'][] = [
+                            'index' =>
+                                $index,
+
+                            'canonical_code' =>
+                                $canonicalCode,
+
+                            'status' =>
+                                $status,
+                        ];
+                    }
+
+                    break;
+            }
+        }
+
+        $result['success'] = true;
+
+    } catch (
+        \Throwable $exception
+    ) {
+
+        $result['error'] =
+            $exception->getMessage();
+    }
+
+    /*
+     * This diagnostic is intentionally rendered directly.
+     *
+     * We do not persist the diagnostic result in an option,
+     * transient, post meta value, or WooCommerce record.
+     */
+    include BP_COMMERCE_PATH
+        . 'admin/views/canonical-primary-image-resolver-test.php';
+}
+
+/**
+ * Render the Canonical Primary Image Resolver diagnostic page.
+ *
+ * Step 7A.
+ *
+ * Read-only.
+ */
+public function canonical_primary_image_resolver(): void
+{
+    include BP_COMMERCE_PATH
+        . 'admin/views/canonical-primary-image-resolver-test.php';
+}
 
     /**
      * Render the main BlackPrint Commerce dashboard.
