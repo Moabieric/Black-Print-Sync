@@ -1,80 +1,76 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce\Sync\Kernel;
 
 use BlackPrint\Commerce\Sync\Contracts\SyncJobInterface;
 use InvalidArgumentException;
 
-class JobDispatcher
+final class JobDispatcher
 {
     /**
-     * Registered jobs.
+     * Registered sync jobs.
      *
-     * @var array<string, array<string, string>>
+     * @var array<string, array<string, SyncJobInterface>>
      */
     private array $jobs = [];
 
     /**
-     * Register a job.
+     * Register a job instance.
      */
     public function register(
-    string $supplier,
-    string $resource,
-    string $jobClass
-): void {
+        SyncJobInterface $job
+    ): void {
 
-    $this->jobs[$supplier][$resource] = $jobClass;
-}
+        $this->jobs[
+            $job->supplier()
+        ][
+            $job->resource()
+        ] = $job;
+    }
 
     /**
-     * Resolve a job instance.
+     * Resolve a registered job.
      */
     public function resolve(
-    string $supplier,
-    string $resource
-): SyncJobInterface {
+        string $supplier,
+        string $resource
+    ): SyncJobInterface {
 
-        if (! isset($this->jobs[$supplier][$resource])) {
+        if (! isset(
+            $this->jobs[$supplier][$resource]
+        )) {
+
             throw new InvalidArgumentException(
                 sprintf(
-    'Resource [%s:%s] is not registered.',
-    $supplier,
-    $resource
-)
-            );
-        }
-
-        $class = $this->jobs[$supplier][$resource];
-
-        $job = new $class();
-
-        if (! $job instanceof SyncJobInterface) {
-            throw new InvalidArgumentException(
-                sprintf(
-                    '%s must implement SyncJobInterface.',
-                    $class
+                    'Resource [%s:%s] is not registered.',
+                    $supplier,
+                    $resource
                 )
             );
         }
 
-        return $job;
+        return $this->jobs[$supplier][$resource];
     }
 
     /**
      * Check registration.
      */
     public function has(
-    string $supplier,
-    string $resource
-): bool {
+        string $supplier,
+        string $resource
+    ): bool {
 
-    return isset(
-        $this->jobs[$supplier][$resource]
-    );
-}
+        return isset(
+            $this->jobs[$supplier][$resource]
+        );
+    }
 
     /**
-     * Return all jobs.
+     * Return all registered jobs.
+     *
+     * @return array<string, array<string, SyncJobInterface>>
      */
     public function all(): array
     {

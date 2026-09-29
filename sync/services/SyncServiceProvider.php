@@ -2,62 +2,154 @@
 
 declare(strict_types=1);
 
-namespace BlackPrint\Sync;
+namespace BlackPrint\Commerce\Sync\Services;
 
-use BlackPrint\Sync\Registry\ConnectorRegistry;
-use BlackPrint\Sync\Registry\StageRegistry;
-use BlackPrint\Sync\Stages\ProductsStage;
+use BlackPrint\Commerce\Sync\Jobs\ProductSyncJob;
+use BlackPrint\Commerce\Sync\Kernel\JobDispatcher;
+use BlackPrint\Commerce\Sync\Kernel\JobRunner;
+use BlackPrint\Commerce\Sync\Kernel\SyncManager;
+use BlackPrint\Commerce\Sync\Registry\ConnectorRegistry;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
+use BlackPrint\Commerce\Sync\Repositories\SyncJobRepository;
+use BlackPrint\Commerce\Sync\Stages\ProductsStage;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Api_Client;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Auth;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Config;
+use BlackPrint\Commerce\Suppliers\Amrod\Amrod_Product_Service;
+use BlackPrint\Commerce\Suppliers\Amrod\AmrodConnector;
+use BlackPrint\Commerce\Sync\Replay\SnapshotIntegrityVerifier;
 
-use BlackPrint\Suppliers\Amrod\AmrodConfig;
-use BlackPrint\Suppliers\Amrod\AmrodConnector;
-use BlackPrint\Suppliers\Amrod\AmrodHttpClient;
-
-use BlackPrint\Sync\Repositories\SnapshotRepository;
-use BlackPrint\Sync\Repositories\SnapshotPayloadRepository;
-use BlackPrint\Sync\Services\SyncManager;
+defined('ABSPATH') || exit;
 
 final class SyncServiceProvider
 {
-    public function register(): SyncPipeline
+    /**
+     * Register the BlackPrint synchronization runtime.
+     */
+    public function register(): SyncManager
     {
+        /*
+        |--------------------------------------------------------------------------
+        | Connector Registry
+        |--------------------------------------------------------------------------
+        */
+
         $connectors = new ConnectorRegistry();
 
-        $stages = new StageRegistry();
+        /*
+        |--------------------------------------------------------------------------
+        | Amrod Supplier Stack
+        |--------------------------------------------------------------------------
+        */
 
-        $config = new AmrodConfig(
+        $config = new Amrod_Config();
 
-            baseUrl: get_option('bp_amrod_base_url', ''),
-
-            username: get_option('bp_amrod_username', ''),
-
-            password: get_option('bp_amrod_password', '')
-
+        $auth = new Amrod_Auth(
+            $config
         );
 
-        $httpClient = new AmrodHttpClient($config);
-
-        $connector = new AmrodConnector($httpClient);
-
-        $connectors->register($connector);
-
-        $stages->register(
-
-            new ProductsStage()
-
+        $apiClient = new Amrod_Api_Client(
+            $auth,
+            $config
         );
 
-        return new SyncPipeline(
+        $products = new Amrod_Product_Service(
+            $apiClient
+        );
 
-            syncManager: new SyncManager(),
+        $amrodConnector = new AmrodConnector(
+            $products
+        );
 
-            stages: $stages,
+        $connectors->register(
+            $amrodConnector
+        );
 
+        /*
+        |--------------------------------------------------------------------------
+        | Ingestion Stage
+        |--------------------------------------------------------------------------
+        */
+
+        $productsStage = new ProductsStage();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Persistence
+        |--------------------------------------------------------------------------
+        */
+
+        global $wpdb;
+
+        $jobs = new SyncJobRepository(
+            $wpdb
+        );
+
+        $snapshots = new SnapshotRepository(
+            $wpdb
+        );
+
+        $payloads = new SnapshotPayloadRepository(
+            $wpdb
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Snapshot Integrity
+        |--------------------------------------------------------------------------
+        |
+        | Read-only verification of immutable snapshots and their
+        | associated raw payloads.
+        |
+        */
+
+        $integrityVerifier = new SnapshotIntegrityVerifier(
+            snapshots: $snapshots,
+            payloads: $payloads
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Job Dispatcher
+        |--------------------------------------------------------------------------
+        */
+
+        $dispatcher = new JobDispatcher();
+
+        $productJob = new ProductSyncJob(
+            stage: $productsStage,
             connectors: $connectors,
+            snapshots: $snapshots,
+            payloads: $payloads,
+            db: $wpdb
+        );
 
-            snapshots: new SnapshotRepository(),
+        $dispatcher->register(
+            $productJob
+        );
 
-            payloads: new SnapshotPayloadRepository()
+        /*
+        |--------------------------------------------------------------------------
+        | Job Runner
+        |--------------------------------------------------------------------------
+        */
 
+        $runner = new JobRunner(
+            dispatcher: $dispatcher,
+            jobs: $jobs
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sync Manager
+        |--------------------------------------------------------------------------
+        */
+
+        return new SyncManager(
+            runner: $runner,
+            jobs: $jobs,
+            integrityVerifier: $integrityVerifier
         );
     }
 }

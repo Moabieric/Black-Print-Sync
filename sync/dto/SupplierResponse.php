@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace BlackPrint\Sync\DTO;
+namespace BlackPrint\Commerce\Sync\DTO;
 
 final class SupplierResponse
 {

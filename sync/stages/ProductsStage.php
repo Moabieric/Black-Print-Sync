@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace BlackPrint\Sync\Stages;
+namespace BlackPrint\Commerce\Sync\Stages;
 
 use RuntimeException;
-use BlackPrint\Sync\JobContext;
-use BlackPrint\Sync\Contracts\IngestionStage;
-use BlackPrint\Sync\Contracts\SupportsProducts;
-use BlackPrint\Sync\Contracts\SupplierConnector;
-use BlackPrint\Sync\ValueObjects\SupplierResponse;
+use BlackPrint\Commerce\Sync\Kernel\JobContext;
+use BlackPrint\Commerce\Sync\Contracts\IngestionStage;
+use BlackPrint\Commerce\Sync\Contracts\SupportsProducts;
+use BlackPrint\Commerce\Sync\Contracts\SupplierConnector;
+use BlackPrint\Commerce\Sync\DTO\SupplierResponse;
 
 final class ProductsStage implements IngestionStage
 {
@@ -28,11 +28,8 @@ final class ProductsStage implements IngestionStage
             throw new RuntimeException(
 
                 sprintf(
-
                     '%s does not support products',
-
                     $connector->supplier()
-
                 )
 
             );

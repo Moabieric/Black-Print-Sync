@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace BlackPrint\Sync\Contracts;
+namespace BlackPrint\Commerce\Sync\Contracts;
 
 interface SupplierConnector
 {

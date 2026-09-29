@@ -1,41 +1,110 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce\Sync\Kernel;
 
-class SyncManager
+use BlackPrint\Commerce\Sync\Entities\SyncJob;
+use BlackPrint\Commerce\Sync\Repositories\SyncJobRepository;
+use BlackPrint\Commerce\Sync\Replay\SnapshotIntegrityVerifier;
+
+defined('ABSPATH') || exit;
+
+final class SyncManager
 {
     public function __construct(
-        private JobRunner $runner
+        private readonly JobRunner $runner,
+        private readonly SyncJobRepository $jobs,
+        private readonly SnapshotIntegrityVerifier $integrityVerifier
     ) {
     }
 
     /**
-     * Dispatch a sync job.
+     * Dispatch a synchronization job.
      */
     public function dispatch(
-    string $supplier,
-    string $resource,
-    array $metadata = []
-): SyncResult {
+        string $supplier,
+        string $resource,
+        array $metadata = []
+    ): SyncResult {
 
-    $context = new JobContext(
+        $jobId = wp_generate_uuid4();
 
-        jobId: uniqid('job_', true),
+        $jobType = $metadata['job_type'] ?? 'manual';
 
-        supplier: $supplier,
+        /*
+        |--------------------------------------------------------------------------
+        | Create Job Record
+        |--------------------------------------------------------------------------
+        */
 
-        resource: $resource,
+        $job = new SyncJob(
 
-        jobType: $metadata['job_type'] ?? 'manual',
+            uuid: $jobId,
 
-        attempt: 1,
+            supplier: $supplier,
 
-        snapshotId: null,
+            resource: $resource,
 
-        metadata: $metadata
+            jobType: $jobType,
 
-    );
+            status: 'pending'
 
-    return $this->runner->run($context);
-}
+        );
+
+        $this->jobs->create(
+            $job
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Runtime Context
+        |--------------------------------------------------------------------------
+        */
+
+        $context = new JobContext(
+
+            jobId: $jobId,
+
+            supplier: $supplier,
+
+            resource: $resource,
+
+            jobType: $jobType,
+
+            attempt: 1,
+
+            snapshotId: null,
+
+            metadata: $metadata
+
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Execute Job
+        |--------------------------------------------------------------------------
+        */
+
+            return $this->runner->run(
+                $context
+        );
+    }
+
+    /**
+     * Verify the integrity of an immutable snapshot.
+     *
+     * This is read-only and does not modify the snapshot,
+     * payload, supplier data, or WooCommerce.
+     */
+    public function verifySnapshot(
+        string $snapshotUuid
+    ): array {
+
+        return $this->integrityVerifier->verify(
+            $snapshotUuid
+        );
+    }
 }

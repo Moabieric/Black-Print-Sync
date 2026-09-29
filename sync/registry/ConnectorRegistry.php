@@ -2,13 +2,16 @@
 
 declare(strict_types=1);
 
-namespace BlackPrint\Sync\Registry;
+namespace BlackPrint\Commerce\Sync\Registry;
 
 use RuntimeException;
-use BlackPrint\Sync\Contracts\SupplierConnector;
+use BlackPrint\Commerce\Sync\Contracts\SupplierConnector;
 
 final class ConnectorRegistry
 {
+    /**
+     * @var array<string, SupplierConnector>
+     */
     private array $connectors = [];
 
     public function register(
@@ -24,9 +27,7 @@ final class ConnectorRegistry
         string $supplier
     ): SupplierConnector {
 
-        if (! isset(
-            $this->connectors[$supplier]
-        )) {
+        if (! isset($this->connectors[$supplier])) {
 
             throw new RuntimeException(
 
@@ -39,5 +40,22 @@ final class ConnectorRegistry
         }
 
         return $this->connectors[$supplier];
+    }
+
+    public function has(
+        string $supplier
+    ): bool {
+
+        return isset(
+            $this->connectors[$supplier]
+        );
+    }
+
+    /**
+     * @return array<string, SupplierConnector>
+     */
+    public function all(): array
+    {
+        return $this->connectors;
     }
 }

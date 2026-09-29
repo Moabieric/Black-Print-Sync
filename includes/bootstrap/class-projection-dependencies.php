@@ -1,0 +1,45 @@
+<?php
+
+defined('ABSPATH') || exit;
+
+/*
+|--------------------------------------------------------------------------
+| Projection
+|--------------------------------------------------------------------------
+|
+| Channel-specific projection planning and execution.
+|
+*/
+
+require_once BP_COMMERCE_PATH
+    . 'projection/contracts/ProductProjectorInterface.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/contracts/ProjectionExecutorInterface.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/dto/ProjectionResult.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/woocommerce/WooCommerceProductProjector.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/woocommerce/WooCommerceProjectionExecutor.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/adoption/VerifiedAdoptionMappingStore.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceOwnershipVerifier.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/media/CanonicalPrimaryImageResolver.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceImageHealthAuditor.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/woocommerce/WooCommerceOwnershipCommitter.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/woocommerce/WooCommerceOwnershipBatchCommitter.php';

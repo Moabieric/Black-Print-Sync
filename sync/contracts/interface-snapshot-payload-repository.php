@@ -5,7 +5,7 @@ namespace BlackPrint\Commerce\Sync\Contracts;
 interface SnapshotPayloadRepositoryInterface
 {
     /**
-     * Store a payload.
+     * Store an immutable payload.
      */
     public function save(
         string $snapshotUuid,
@@ -13,16 +13,9 @@ interface SnapshotPayloadRepositoryInterface
     ): void;
 
     /**
-     * Retrieve a payload.
+     * Retrieve an immutable payload.
      */
     public function find(
         string $snapshotUuid
     ): ?array;
-
-    /**
-     * Delete a payload.
-     */
-    public function delete(
-        string $snapshotUuid
-    ): void;
 }

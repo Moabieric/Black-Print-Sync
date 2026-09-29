@@ -1,26 +1,31 @@
 <?php
 
+declare(strict_types=1);
+
 namespace BlackPrint\Commerce\Sync\Jobs;
 
 use BlackPrint\Commerce\Sync\Contracts\SyncJobInterface;
+use BlackPrint\Commerce\Sync\Entities\Snapshot;
+use BlackPrint\Commerce\Sync\Entities\SnapshotType;
 use BlackPrint\Commerce\Sync\Kernel\JobContext;
 use BlackPrint\Commerce\Sync\Kernel\SyncResult;
-use BlackPrint\Commerce\Sync\Stages\ProductsStage;
+use BlackPrint\Commerce\Sync\Registry\ConnectorRegistry;
+use BlackPrint\Commerce\Sync\Repositories\SnapshotPayloadRepository;
 use BlackPrint\Commerce\Sync\Repositories\SnapshotRepository;
-use BlackPrint\Commerce\Sync\Storage\SnapshotPayloadRepository;
+use BlackPrint\Commerce\Sync\Stages\ProductsStage;
+
+defined('ABSPATH') || exit;
 
 final class ProductSyncJob implements SyncJobInterface
 {
     public function __construct(
-
-        private ProductsStage $stage,
-
-        private SnapshotRepository $snapshots,
-
-        private SnapshotPayloadRepository $payloads
-
-    ) {
-    }
+    private readonly ProductsStage $stage,
+    private readonly ConnectorRegistry $connectors,
+    private readonly SnapshotRepository $snapshots,
+    private readonly SnapshotPayloadRepository $payloads,
+    private readonly \wpdb $db
+) {
+}
 
     public function supplier(): string
     {
@@ -36,74 +41,219 @@ final class ProductSyncJob implements SyncJobInterface
         JobContext $context
     ): SyncResult {
 
-        $response = $this->stage->fetch($context);
+        /*
+        |--------------------------------------------------------------------------
+        | Replay Protection
+        |--------------------------------------------------------------------------
+        |
+        | Replay is intentionally not part of the supplier ingestion path.
+        |
+        | A future replay implementation must load an existing immutable
+        | snapshot and process that payload without contacting the supplier.
+        |
+        */
+
+        if ($context->jobType() === 'replay') {
+            throw new \RuntimeException(
+                'Product replay is not implemented in the supplier ingestion job.'
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Resolve Supplier Connector
+        |--------------------------------------------------------------------------
+        */
+
+        $connector = $this->connectors->get(
+            $context->supplier()
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Fetch Raw Supplier Data
+        |--------------------------------------------------------------------------
+        */
+
+        $response = $this->stage->fetch(
+            $connector,
+            $context
+        );
 
         $metadata = $response->metadata();
 
-        // Snapshot creation goes here
 
-        public function execute(
-    JobContext $context
-): SyncResult {
+        /*
+        |--------------------------------------------------------------------------
+        | Create Immutable Snapshot
+        |--------------------------------------------------------------------------
+        */
 
-    $response = $this->stage->fetch($context);
+        $snapshot = new Snapshot(
 
-    $meta = $response->metadata();
+            id: wp_generate_uuid4(),
 
-    $snapshot = new Snapshot(
+            jobId: $context->jobId(),
 
-        id: wp_generate_uuid4(),
+            sequenceNumber: 1,
 
-        jobId: $context->jobId(),
+            supplier: $metadata->supplier(),
 
-        sequenceNumber: 1,
+            resource: $metadata->resource(),
 
-        supplier: $meta->supplier(),
+            type: $this->snapshotType(
+                $context
+            ),
 
-        resource: $meta->resource(),
+            checksum: $metadata->checksum(),
 
-        type: SnapshotType::MANUAL,
+            recordCount: $metadata->recordCount(),
 
-        checksum: $meta->checksum(),
+            metadata: [
 
-        recordCount: $meta->recordCount(),
+                'duration_ms' => $metadata->durationMs(),
 
-        metadata: [
+                'payload_size' => $metadata->payloadSize(),
 
-            'duration_ms' => $meta->durationMs(),
+                'requested_at' => $metadata->requestedAt(),
 
-            'payload_size' => $meta->payloadSize(),
+                'etag' => $metadata->etag(),
 
-            'requested_at' => $meta->requestedAt(),
+                'cursor' => $metadata->cursor(),
 
-        ]
+                'extra' => $metadata->extra(),
 
-    );
+            ]
 
-    $this->snapshots->create($snapshot);
+        );
 
-    $this->payloads->save(
 
-        $snapshot->id(),
+        /*
+        |--------------------------------------------------------------------------
+        | Persist Immutable Snapshot + Payload Atomically
+        |--------------------------------------------------------------------------
+        |
+        | A snapshot and its raw payload form one immutable ingestion record.
+        | Neither may persist without the other.
+        |
+        */
 
-        $response->payload()
+        $this->db->query(
+            'START TRANSACTION'
+        );
 
-    );
+        try {
 
-    return new SyncResult(
+            /*
+            |--------------------------------------------------------------------------
+            | Persist Snapshot Metadata
+            |--------------------------------------------------------------------------
+            */
 
-        success: true,
+            $this->snapshots->create(
+                $snapshot
+            );
 
-        processed: $meta->recordCount(),
 
-        metadata: [
+            /*
+            |--------------------------------------------------------------------------
+            | Persist Immutable Raw Payload
+            |--------------------------------------------------------------------------
+            */
 
-            'snapshot_uuid' => $snapshot->id(),
+            $this->payloads->save(
+                $snapshot->id(),
+                $response->payload()
+            );
 
-            'checksum' => $meta->checksum(),
 
-        ]
+            /*
+            |--------------------------------------------------------------------------
+            | Commit Atomic Ingestion
+            |--------------------------------------------------------------------------
+            */
 
-    );
-}
+            $this->db->query(
+                'COMMIT'
+            );
+
+        } catch (\Throwable $e) {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Roll Back Partial Ingestion
+            |--------------------------------------------------------------------------
+            */
+
+            $this->db->query(
+                'ROLLBACK'
+            );
+
+            throw $e;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Return Result
+        |--------------------------------------------------------------------------
+        */
+
+        return new SyncResult(
+
+            success: true,
+
+            fetched: $metadata->recordCount(),
+
+            processed: $metadata->recordCount(),
+
+            snapshotId: $snapshot->id(),
+
+            metadata: [
+
+                'job_uuid' => $context->jobId(),
+
+                'snapshot_uuid' => $snapshot->id(),
+
+                'checksum' => $metadata->checksum(),
+
+                'supplier' => $metadata->supplier(),
+
+                'resource' => $metadata->resource(),
+
+                'snapshot_type' => $snapshot->type(),
+
+                'endpoint' => $metadata->extra()['endpoint'] ?? null,
+
+            ]
+
+        );
+    }
+
+    private function snapshotType(
+        JobContext $context
+    ): string {
+
+        return match ($context->jobType()) {
+
+            'daily' =>
+                SnapshotType::FULL,
+
+            'scheduled' =>
+                SnapshotType::INCREMENTAL,
+
+            'manual' =>
+                SnapshotType::MANUAL,
+
+            default => throw new \RuntimeException(
+                sprintf(
+                    'Unsupported product snapshot job type: %s',
+                    $context->jobType()
+                )
+            ),
+
+        };
+    }
 }

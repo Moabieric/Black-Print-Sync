@@ -5,7 +5,7 @@ namespace BlackPrint\Commerce\Sync\Entities;
 defined('ABSPATH') || exit;
 
 /**
- * Immutable synchronization job.
+ * Synchronization job lifecycle record.
  */
 final class SyncJob
 {
