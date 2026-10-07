@@ -36,7 +36,19 @@ require_once BP_COMMERCE_PATH
     . 'projection/media/CanonicalPrimaryImageResolver.php';
 
 require_once BP_COMMERCE_PATH
+    . 'projection/verification/CanonicalPrimaryImageResolutionStore.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/media/WordPressImageImporter.php';
+
+require_once BP_COMMERCE_PATH
     . 'projection/verification/WooCommerceImageHealthAuditor.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceSafeImageRepairer.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceImageRepairOrchestrator.php';
 
 require_once BP_COMMERCE_PATH
     . 'projection/woocommerce/WooCommerceOwnershipCommitter.php';
