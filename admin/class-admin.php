@@ -48,6 +48,14 @@ final class Admin
         );
 
         add_action(
+            'admin_post_bp_woocommerce_image_repair_preflight',
+            [
+                $this,
+                'woocommerce_image_repair_preflight',
+            ]
+        );
+
+        add_action(
             'admin_post_bp_verify_snapshot_integrity',
             [
                 $this,
@@ -333,6 +341,38 @@ final class Admin
         );
 
         /*
+|--------------------------------------------------------------------------
+| Image Repair Preflight
+|--------------------------------------------------------------------------
+|
+| Step 7B — Read-only validation of Step 6 repair candidates against
+| the exact Step 7A canonical primary-image artifact.
+|
+| This page:
+|
+| - Requires an explicit Step 7A artifact ID.
+| - Validates the artifact against the locked snapshot.
+| - Re-runs the Step 6 image audit read-only.
+| - Validates repair candidates against Step 7A.
+| - Does not modify WooCommerce.
+| - Does not download or create media.
+| - Does not perform repairs.
+|
+*/
+
+add_submenu_page(
+    'blackprint-commerce',
+    'Image Repair Preflight',
+    'Image Repair Preflight',
+    'manage_woocommerce',
+    'blackprint-woocommerce-image-repair-preflight',
+    [
+        $this,
+        'woocommerce_image_repair_preflight_page',
+    ]
+);
+
+        /*
         |--------------------------------------------------------------------------
         | Amrod Stock
         |--------------------------------------------------------------------------
@@ -582,6 +622,138 @@ public function woocommerce_adoption(): void
             . 'admin/views/woocommerce-image-health.php';
     }
 
+/**
+ * Execute Step 7B WooCommerce image repair preflight.
+ *
+ * Step 7B — Read-only.
+ *
+ * This action:
+ *
+ * - Requires an explicit Step 7A artifact ID.
+ * - Loads that exact artifact.
+ * - Validates its snapshot identity.
+ * - Re-runs the Step 6 image health audit.
+ * - Preflights every Step 6 repair candidate.
+ *
+ * HARD SAFETY BOUNDARY:
+ *
+ * - Does not modify WooCommerce.
+ * - Does not create attachments.
+ * - Does not download images.
+ * - Does not assign featured images.
+ * - Does not replace images.
+ * - Does not delete images.
+ * - Does not modify ownership.
+ * - Does not reconstruct Step 3 mappings.
+ * - Does not rerun Step 5B.
+ */
+public function woocommerce_image_repair_preflight(): void
+{
+    if (
+        ! current_user_can(
+            'manage_woocommerce'
+        )
+    ) {
+        wp_die(
+            'You do not have permission to run the WooCommerce image repair preflight.'
+        );
+    }
+
+    check_admin_referer(
+        'bp_woocommerce_image_repair_preflight'
+    );
+
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    $artifactId =
+        isset(
+            $_POST['step_7a_artifact_id']
+        )
+            ? sanitize_text_field(
+                wp_unslash(
+                    $_POST['step_7a_artifact_id']
+                )
+            )
+            : '';
+
+    $result = [
+        'success' => false,
+        'read_only' => true,
+        'snapshot_uuid' => $snapshotUuid,
+        'step_7a_artifact_id' => $artifactId,
+        'step_7a_artifact_loaded' => false,
+        'audit_completed' => false,
+        'audit_summary' => [],
+        'total_candidates' => 0,
+        'eligible_candidates' => 0,
+        'rejected_candidates' => 0,
+        'rejection_counts' => [],
+        'eligible' => [],
+        'rejected' => [],
+        'error' => '',
+    ];
+
+    try {
+
+        if ($artifactId === '') {
+            throw new \RuntimeException(
+                'Step 7B requires an explicit Step 7A artifact ID.'
+            );
+        }
+
+        $orchestrator =
+            new \BlackPrint\Commerce\Projection\Verification\WooCommerceImageRepairOrchestrator();
+
+        $result =
+            $orchestrator->preflightCandidates(
+                $snapshotUuid,
+                $artifactId
+            );
+
+    } catch (\Throwable $exception) {
+
+        $result['error'] =
+            $exception->getMessage();
+    }
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/woocommerce-image-repair-preflight.php';
+}
+
+/**
+ * Render the Step 7B image repair preflight page.
+ *
+ * Read-only.
+ */
+public function woocommerce_image_repair_preflight_page(): void
+{
+    $snapshotUuid =
+        'e1feb722-4844-4561-bb22-a199a57522d9';
+
+    $result =
+        [
+            'success' => false,
+            'read_only' => true,
+            'snapshot_uuid' => $snapshotUuid,
+            'step_7a_artifact_id' => '',
+            'step_7a_artifact_loaded' => false,
+            'audit_completed' => false,
+            'audit_summary' => [],
+            'total_candidates' => 0,
+            'eligible_candidates' => 0,
+            'rejected_candidates' => 0,
+            'rejection_counts' => [],
+            'eligible' => [],
+            'rejected' => [],
+            'error' => '',
+        ];
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/woocommerce-image-repair-preflight.php';
+}
+
+
     /**
  * Test the canonical primary image resolver against the real snapshot.
  *
@@ -641,6 +813,9 @@ public function test_canonical_primary_image_resolver(): void
         ],
         'resolved_samples' => [],
         'failure_samples' => [],
+        'artifact_id' => '',
+        'artifact_created' => false,
+        'artifact_error' => '',
         'error' => '',
     ];
 
@@ -676,8 +851,21 @@ public function test_canonical_primary_image_resolver(): void
         $resolver =
             new \BlackPrint\Commerce\Projection\Media\CanonicalPrimaryImageResolver();
 
+        $resolutionStore =
+            new \BlackPrint\Commerce\Projection\Verification\CanonicalPrimaryImageResolutionStore();
+
         $products =
             $normalizationResult->products();
+
+        /*
+         * Complete Step 7A result set.
+         *
+         * This is the server-side hand-off consumed by Step 7B.
+         *
+         * The existing diagnostic samples remain separate so the
+         * admin view contract is not changed.
+         */
+        $resolutions = [];
 
         for (
             $index = 0;
@@ -717,6 +905,30 @@ public function test_canonical_primary_image_resolver(): void
                     (string) $canonicalCode
                 );
 
+            if ($canonicalCode === '') {
+                throw new \RuntimeException(
+                    sprintf(
+                        'Step 7A failed: canonical product at normalized index %d has an empty supplier_product_code.',
+                        $index
+                    )
+                );
+            }
+
+            if (
+                array_key_exists(
+                    $canonicalCode,
+                    $resolutions
+                )
+            ) {
+                throw new \RuntimeException(
+                    sprintf(
+                        'Step 7A failed: duplicate canonical supplier_product_code "%s" encountered at normalized index %d.',
+                        $canonicalCode,
+                        $index
+                    )
+                );
+            }
+
             $images =
                 $canonicalProduct
                     ->media()['images']
@@ -740,6 +952,27 @@ public function test_canonical_primary_image_resolver(): void
                     $resolution['status']
                     ?? 'UNKNOWN'
                 );
+
+            /*
+             * Persist the complete resolver result.
+             *
+             * Step 7B will consume this exact result rather than
+             * independently recalculating Step 7A.
+             */
+            $resolutions[$canonicalCode] = [
+                'status' =>
+                    $status,
+
+                'url' =>
+                    (string) (
+                        $resolution['url']
+                        ?? ''
+                    ),
+
+                'image' =>
+                    $resolution['image']
+                    ?? null,
+            ];
 
             switch ($status) {
 
@@ -864,7 +1097,54 @@ public function test_canonical_primary_image_resolver(): void
             }
         }
 
-        $result['success'] = true;
+        /*
+         * The complete normalized product set must be represented
+         * by the Step 7A artifact.
+         */
+        if (
+            count($resolutions)
+            !== $result['normalized']
+        ) {
+            throw new \RuntimeException(
+                sprintf(
+                    'Step 7A failed: normalized count is %d but complete resolution count is %d.',
+                    $result['normalized'],
+                    count($resolutions)
+                )
+            );
+        }
+
+        $artifact =
+            $resolutionStore->create(
+                $snapshotUuid,
+                $result['normalized'],
+                $result['normalization_error_count'],
+                $result['resolver_counts'],
+                $resolutions
+            );
+
+        if (
+            ! ($artifact['success'] ?? false)
+        ) {
+            throw new \RuntimeException(
+                (string) (
+                    $artifact['message']
+                    ?? 'Unknown Step 7A artifact creation error.'
+                )
+            );
+        }
+
+        $result['artifact_id'] =
+            (string) (
+                $artifact['artifact_id']
+                ?? ''
+            );
+
+        $result['artifact_created'] =
+            true;
+
+        $result['success'] =
+            true;
 
     } catch (
         \Throwable $exception
@@ -875,10 +1155,12 @@ public function test_canonical_primary_image_resolver(): void
     }
 
     /*
-     * This diagnostic is intentionally rendered directly.
+     * This diagnostic remains read-only with respect to WooCommerce.
      *
-     * We do not persist the diagnostic result in an option,
-     * transient, post meta value, or WooCommerce record.
+     * The only persistence introduced here is the server-side Step 7A
+     * diagnostic artifact consumed by the controlled Step 7B repair
+     * process. No WooCommerce product, attachment, ownership metadata,
+     * or image is modified.
      */
     include BP_COMMERCE_PATH
         . 'admin/views/canonical-primary-image-resolver-test.php';

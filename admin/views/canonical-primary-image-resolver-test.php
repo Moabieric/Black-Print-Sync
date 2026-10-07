@@ -102,6 +102,65 @@ $result =
             </code>
         </p>
 
+                <?php if (! empty($result['artifact_id'])) : ?>
+
+            <p>
+                <strong>Step 7A Artifact ID:</strong>
+
+                <code>
+                    <?php
+                    echo esc_html(
+                        $result['artifact_id']
+                    );
+                    ?>
+                </code>
+            </p>
+
+        <?php endif; ?>
+
+        <?php if (!empty($result['artifact_id'])) : ?>
+
+    <form
+        method="post"
+        action="<?php echo esc_url(
+            admin_url('admin-post.php')
+        ); ?>"
+        style="margin-top: 20px;"
+    >
+
+        <input
+            type="hidden"
+            name="action"
+            value="bp_woocommerce_image_repair_preflight"
+        >
+
+        <input
+            type="hidden"
+            name="step_7a_artifact_id"
+            value="<?php echo esc_attr(
+                $result['artifact_id']
+            ); ?>"
+        >
+
+        <?php
+        wp_nonce_field(
+            'bp_woocommerce_image_repair_preflight'
+        );
+        ?>
+
+        <?php
+        submit_button(
+            'Run Step 7B Read-Only Repair Preflight',
+            'secondary',
+            'submit',
+            false
+        );
+        ?>
+
+    </form>
+
+<?php endif; ?>
+
         <?php if (! empty($result['error'])) : ?>
 
             <div class="notice notice-error">
