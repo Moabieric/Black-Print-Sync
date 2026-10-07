@@ -858,45 +858,75 @@ final class WooCommerceImageHealthAuditor
      * @return array<string, mixed>
      */
     private function buildRepairCandidate(
-        CanonicalProduct $canonicalProduct,
-        string $canonicalCode,
-        array $canonicalImages,
-        int $wooProductId,
-        string $status,
-        array $wooState
-    ): array {
-        return [
-            'woo_product_id' =>
-                $wooProductId,
+    CanonicalProduct $canonicalProduct,
+    string $canonicalCode,
+    array $canonicalImages,
+    int $wooProductId,
+    string $status,
+    array $wooState
+): array {
+    $canonicalMedia =
+        $canonicalProduct->media();
 
-            'canonical_code' =>
-                $canonicalCode,
+    $canonicalPrimaryImageCandidates =
+        $canonicalMedia['images']
+        ?? [];
 
-            'status' =>
-                $status,
-
-            'canonical_images' =>
-                $canonicalImages,
-
-            'woo_state' =>
-                $wooState,
-
-            'repair_authority' =>
-                'canonical_blackprint_media',
-
-            'repair_allowed' =>
-                true,
-
-            'requires_deterministic_canonical_image' =>
-                true,
-
-            'requires_existing_owned_woocommerce_product' =>
-                true,
-
-            'requires_step_7_validation' =>
-                true,
-        ];
+    if (!is_array($canonicalPrimaryImageCandidates)) {
+        $canonicalPrimaryImageCandidates = [];
     }
+
+    return [
+        'woo_product_id' =>
+            $wooProductId,
+
+        'canonical_code' =>
+            $canonicalCode,
+
+        'status' =>
+            $status,
+
+        /*
+         * Existing Step 6 diagnostic representation.
+         *
+         * Preserve this unchanged for the audit/report contract.
+         */
+        'canonical_images' =>
+            $canonicalImages,
+
+        /*
+         * Original normalized canonical image records.
+         *
+         * Step 7A consumes this structure because deterministic
+         * primary-image resolution depends on:
+         *
+         * - isDefault
+         * - urls[].url
+         *
+         * This field is authoritative for Step 7 image selection.
+         */
+        'canonical_primary_image_candidates' =>
+            $canonicalPrimaryImageCandidates,
+
+        'woo_state' =>
+            $wooState,
+
+        'repair_authority' =>
+            'canonical_blackprint_media',
+
+        'repair_allowed' =>
+            true,
+
+        'requires_deterministic_canonical_image' =>
+            true,
+
+        'requires_existing_owned_woocommerce_product' =>
+            true,
+
+        'requires_step_7_validation' =>
+            true,
+    ];
+}
 
     /**
      * Extract the canonical supplier product code.
