@@ -666,6 +666,7 @@ final class CanonicalPrimaryImageResolutionStore
         }
 
         return true;
+    }
 
     /**
      * Generate a collision-resistant artifact ID.
