@@ -281,7 +281,8 @@ final class WooCommerceImageRepairOrchestrator
             $auditResult =
                 $this->auditor->audit(
                     $snapshotUuid,
-                    $normalizationResult
+                    $normalizationResult,
+                    false
                 );
 
             if (!is_array($auditResult)) {

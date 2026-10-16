@@ -67,6 +67,30 @@ final class WooCommerceImageHealthAuditor
     private const PRODUCT_CODE_META = '_blackprint_product_code';
 
     /**
+     * Request-local, read-only indexes rebuilt for every audit.
+     *
+     * @var array<string, array<int, true>>
+     */
+    private array $ownedProductIndex = [];
+
+    /**
+     * @var array<int, array{thumbnail_id: int, gallery_ids: array<int>}>
+     */
+    private array $wooImageReferences = [];
+
+    /**
+     * @var array<int, bool>
+     */
+    private array $usableAttachmentIndex = [];
+
+    /**
+     * Preserve the ordering returned by the original ownership query.
+     *
+     * @var array<int, int>
+     */
+    private array $ownedProductOrder = [];
+
+    /**
      * Audit a normalized canonical snapshot.
      *
      * Canonical products are the primary counting unit.
@@ -81,7 +105,8 @@ final class WooCommerceImageHealthAuditor
      */
     public function audit(
         string $snapshotUuid,
-        NormalizationResult $normalizationResult
+        NormalizationResult $normalizationResult,
+        bool $includeDetailedProducts = true
     ): array {
         if ($snapshotUuid === '') {
             throw new \InvalidArgumentException(
@@ -157,6 +182,8 @@ final class WooCommerceImageHealthAuditor
 
             'warnings' => [],
         ];
+
+        $this->buildAuditIndexes();
 
         for (
             $index = 0;
@@ -244,15 +271,17 @@ final class WooCommerceImageHealthAuditor
             if (empty($wooProductIds)) {
                 $report['summary']['not_adopted']++;
 
-                $report['products'][] =
-                    $this->buildRow(
-                        $canonicalProduct,
-                        $canonicalCode,
-                        $canonicalImages,
-                        $canonicalColourImages,
-                        null,
-                        'NOT_ADOPTED'
-                    );
+                if ($includeDetailedProducts) {
+                    $report['products'][] =
+                        $this->buildRow(
+                            $canonicalProduct,
+                            $canonicalCode,
+                            $canonicalImages,
+                            $canonicalColourImages,
+                            null,
+                            'NOT_ADOPTED'
+                        );
+                }
 
                 continue;
             }
@@ -414,16 +443,18 @@ final class WooCommerceImageHealthAuditor
                         break;
                 }
 
-                $report['products'][] =
-                    $this->buildRow(
-                        $canonicalProduct,
-                        $canonicalCode,
-                        $canonicalImages,
-                        $canonicalColourImages,
-                        $wooProductId,
-                        $status,
-                        $wooState
-                    );
+                if ($includeDetailedProducts) {
+                    $report['products'][] =
+                        $this->buildRow(
+                            $canonicalProduct,
+                            $canonicalCode,
+                            $canonicalImages,
+                            $canonicalColourImages,
+                            $wooProductId,
+                            $status,
+                            $wooState
+                        );
+                }
             }
         }
 
@@ -489,6 +520,296 @@ final class WooCommerceImageHealthAuditor
      *
      * @return array<int>
      */
+    /**
+     * Build request-local ownership and image indexes using bounded,
+     * read-only database queries.
+     *
+     * No post metadata cache is primed by these reads.
+     */
+    private function buildAuditIndexes(): void
+    {
+        global $wpdb;
+
+        $this->ownedProductIndex = [];
+        $this->wooImageReferences = [];
+        $this->usableAttachmentIndex = [];
+        $this->ownedProductOrder = [];
+
+        $wpdb->last_error = '';
+
+        $productIds = get_posts([
+            'post_type' => 'product',
+            'post_status' => 'any',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+            'meta_query' => [
+                'relation' => 'AND',
+                [
+                    'key' => self::OWNERSHIP_META,
+                    'value' => 'yes',
+                    'compare' => '=',
+                ],
+                [
+                    'key' => self::SUPPLIER_META,
+                    'value' => self::SUPPLIER,
+                    'compare' => '=',
+                ],
+            ],
+        ]);
+
+        if (!is_array($productIds)) {
+            throw new \RuntimeException(
+                'Step 6/7B could not load owned WooCommerce product IDs.'
+            );
+        }
+
+        if ($wpdb->last_error !== '') {
+            throw new \RuntimeException(
+                'Step 6/7B ownership query failed: '
+                . $wpdb->last_error
+            );
+        }
+
+        $orderedIds = [];
+
+        foreach ($productIds as $productId) {
+            $productId = absint($productId);
+
+            if ($productId > 0 && !isset($this->ownedProductOrder[$productId])) {
+                $this->ownedProductOrder[$productId] = count($orderedIds);
+                $orderedIds[] = $productId;
+            }
+        }
+
+        $imageAttachmentIds = [];
+
+        $batchSize = 400;
+
+        for ($offset = 0; $offset < count($orderedIds); $offset += $batchSize) {
+            $batch = array_slice($orderedIds, $offset, $batchSize);
+            $placeholders = implode(',', array_fill(0, count($batch), '%d'));
+
+            $metaKeys = [
+                self::PRODUCT_CODE_META,
+                self::PRODUCT_ID_META,
+                '_thumbnail_id',
+                '_product_image_gallery',
+            ];
+
+            $keyPlaceholders = implode(
+                ',',
+                array_fill(0, count($metaKeys), '%s')
+            );
+
+            $sql = "
+                SELECT post_id, meta_id, meta_key, meta_value
+                FROM {$wpdb->postmeta}
+                WHERE post_id IN ({$placeholders})
+                  AND meta_key IN ({$keyPlaceholders})
+                ORDER BY post_id ASC, meta_id ASC
+            ";
+
+            $params = array_merge($batch, $metaKeys);
+
+            $wpdb->last_error = '';
+            $rows = $wpdb->get_results(
+                $wpdb->prepare($sql, $params),
+                ARRAY_A
+            );
+
+            if (!is_array($rows) || $wpdb->last_error !== '') {
+                throw new \RuntimeException(
+                    'Step 6/7B product metadata batch failed: '
+                    . ($wpdb->last_error ?: 'No result returned.')
+                );
+            }
+
+            $seenImageMeta = [];
+
+            foreach ($batch as $productId) {
+                $this->wooImageReferences[$productId] = [
+                    'thumbnail_id' => 0,
+                    'gallery_ids' => [],
+                ];
+            }
+
+            foreach ($rows as $row) {
+                $productId = absint($row['post_id'] ?? 0);
+                $metaKey = (string) ($row['meta_key'] ?? '');
+                $metaValue = (string) ($row['meta_value'] ?? '');
+
+                if ($productId <= 0) {
+                    continue;
+                }
+
+                if (
+                    $metaKey === self::PRODUCT_CODE_META
+                    || $metaKey === self::PRODUCT_ID_META
+                ) {
+                    if ($metaValue !== '') {
+                        $this->ownedProductIndex[$metaValue][$productId] = true;
+                    }
+
+                    continue;
+                }
+
+                if (isset($seenImageMeta[$productId][$metaKey])) {
+                    continue;
+                }
+
+                if ($metaKey === '_thumbnail_id') {
+                    $seenImageMeta[$productId][$metaKey] = true;
+                    $attachmentId = absint($metaValue);
+
+                    $this->wooImageReferences[$productId]['thumbnail_id'] =
+                        $attachmentId;
+
+                    if ($attachmentId > 0) {
+                        $imageAttachmentIds[$attachmentId] = true;
+                    }
+
+                    continue;
+                }
+
+                if ($metaKey === '_product_image_gallery') {
+                    $seenImageMeta[$productId][$metaKey] = true;
+
+                    $galleryIds = array_values(
+                        array_filter(
+                            array_map(
+                                'absint',
+                                explode(',', $metaValue)
+                            )
+                        )
+                    );
+
+                    $this->wooImageReferences[$productId]['gallery_ids'] =
+                        $galleryIds;
+
+                    foreach ($galleryIds as $attachmentId) {
+                        $imageAttachmentIds[$attachmentId] = true;
+                    }
+                }
+            }
+        }
+
+        $attachmentIds = array_map(
+            'absint',
+            array_keys($imageAttachmentIds)
+        );
+
+        $uploadInfo = wp_get_upload_dir();
+
+        if (!is_array($uploadInfo) || empty($uploadInfo['basedir'])) {
+            throw new \RuntimeException(
+                'Step 6/7B could not resolve the WordPress uploads directory.'
+            );
+        }
+
+        $baseDirectory = (string) $uploadInfo['basedir'];
+
+        for (
+            $offset = 0;
+            $offset < count($attachmentIds);
+            $offset += $batchSize
+        ) {
+            $batch = array_slice($attachmentIds, $offset, $batchSize);
+            $placeholders = implode(',', array_fill(0, count($batch), '%d'));
+
+            $sql = "
+                SELECT p.ID, p.post_type, p.post_mime_type,
+                       pm.meta_id, pm.meta_value AS attached_file
+                FROM {$wpdb->posts} AS p
+                LEFT JOIN {$wpdb->postmeta} AS pm
+                    ON pm.post_id = p.ID
+                   AND pm.meta_key = %s
+                WHERE p.ID IN ({$placeholders})
+                ORDER BY p.ID ASC, pm.meta_id ASC
+            ";
+
+            $params = array_merge(['_wp_attached_file'], $batch);
+
+            $wpdb->last_error = '';
+            $rows = $wpdb->get_results(
+                $wpdb->prepare($sql, $params),
+                ARRAY_A
+            );
+
+            if (!is_array($rows) || $wpdb->last_error !== '') {
+                throw new \RuntimeException(
+                    'Step 6/7B attachment metadata batch failed: '
+                    . ($wpdb->last_error ?: 'No result returned.')
+                );
+            }
+
+            $seenAttachments = [];
+
+            foreach ($rows as $row) {
+                $attachmentId = absint($row['ID'] ?? 0);
+
+                if (
+                    $attachmentId <= 0
+                    || isset($seenAttachments[$attachmentId])
+                ) {
+                    continue;
+                }
+
+                $seenAttachments[$attachmentId] = true;
+                $this->usableAttachmentIndex[$attachmentId] = false;
+
+                if (($row['post_type'] ?? '') !== 'attachment') {
+                    continue;
+                }
+
+                $mimeType = (string) ($row['post_mime_type'] ?? '');
+
+                if (strpos($mimeType, 'image/') !== 0) {
+                    continue;
+                }
+
+                $attachedFile = $row['attached_file'] ?? null;
+
+                if (!is_string($attachedFile) || $attachedFile === '') {
+                    continue;
+                }
+
+                $file = $attachedFile;
+
+                $isAbsolutePath =
+                    strpos($file, '/') === 0
+                    || preg_match('/^[A-Za-z]:[\\\\\/]/', $file) === 1;
+
+                if (!$isAbsolutePath) {
+                    $file = path_join($baseDirectory, $file);
+                }
+
+                $file = apply_filters(
+                    'get_attached_file',
+                    $file,
+                    $attachmentId
+                );
+
+                if (
+                    is_string($file)
+                    && $file !== ''
+                    && is_file($file)
+                    && is_readable($file)
+                ) {
+                    $this->usableAttachmentIndex[$attachmentId] = true;
+                }
+            }
+        }
+    }
+
+    /**
+     * Locate WooCommerce products already marked as BlackPrint managed
+     * for the canonical product.
+     *
+     * @return array<int>
+     */
     private function findOwnedWooProducts(
         CanonicalProduct $canonicalProduct
     ): array {
@@ -501,89 +822,37 @@ final class WooCommerceImageHealthAuditor
             return [];
         }
 
-        $productIds =
-            get_posts(
-                [
-                    'post_type' =>
-                        'product',
+        $matches =
+            $this->ownedProductIndex[$canonicalCode]
+            ?? [];
 
-                    'post_status' =>
-                        'any',
-
-                    'posts_per_page' =>
-                        -1,
-
-                    'fields' =>
-                        'ids',
-
-                    'meta_query' =>
-                        [
-                            'relation' =>
-                                'AND',
-
-                            [
-                                'key' =>
-                                    self::OWNERSHIP_META,
-
-                                'value' =>
-                                    'yes',
-
-                                'compare' =>
-                                    '=',
-                            ],
-
-                            [
-                                'key' =>
-                                    self::SUPPLIER_META,
-
-                                'value' =>
-                                    self::SUPPLIER,
-
-                                'compare' =>
-                                    '=',
-                            ],
-
-                            [
-                                'relation' =>
-                                    'OR',
-
-                                [
-                                    'key' =>
-                                        self::PRODUCT_CODE_META,
-
-                                    'value' =>
-                                        $canonicalCode,
-
-                                    'compare' =>
-                                        '=',
-                                ],
-
-                                [
-                                    'key' =>
-                                        self::PRODUCT_ID_META,
-
-                                    'value' =>
-                                        $canonicalCode,
-
-                                    'compare' =>
-                                        '=',
-                                ],
-                            ],
-                        ],
-                ]
-            );
-
-        if (!is_array($productIds)) {
+        if (empty($matches)) {
             return [];
         }
 
+        $productIds = array_map(
+            'absint',
+            array_keys($matches)
+        );
+
+        /*
+         * Keep the original get_posts() ordering for matching products.
+         * This makes duplicate-ownership diagnostics deterministic and
+         * avoids changing the order of detailed Step 6 rows.
+         */
+        usort(
+            $productIds,
+            function (int $left, int $right): int {
+                return (
+                    ($this->ownedProductOrder[$left] ?? PHP_INT_MAX)
+                    <=>
+                    ($this->ownedProductOrder[$right] ?? PHP_INT_MAX)
+                );
+            }
+        );
+
         return array_values(
-            array_unique(
-                array_map(
-                    'absint',
-                    $productIds
-                )
-            )
+            array_unique($productIds)
         );
     }
 
@@ -597,29 +866,19 @@ final class WooCommerceImageHealthAuditor
     private function inspectWooImages(
         int $productId
     ): array {
+        $references =
+            $this->wooImageReferences[$productId]
+            ?? [
+                'thumbnail_id' => 0,
+                'gallery_ids' => [],
+            ];
+
         $thumbnailId =
-            (int) get_post_thumbnail_id(
-                $productId
-            );
+            (int) ($references['thumbnail_id'] ?? 0);
 
         $galleryIds =
-            get_post_meta(
-                $productId,
-                '_product_image_gallery',
-                true
-            );
-
-        $galleryIds =
-            is_string($galleryIds)
-                ? array_filter(
-                    array_map(
-                        'absint',
-                        explode(
-                            ',',
-                            $galleryIds
-                        )
-                    )
-                )
+            is_array($references['gallery_ids'] ?? null)
+                ? $references['gallery_ids']
                 : [];
 
         $usableThumbnail =
@@ -632,6 +891,8 @@ final class WooCommerceImageHealthAuditor
         $brokenGallery = [];
 
         foreach ($galleryIds as $attachmentId) {
+            $attachmentId = absint($attachmentId);
+
             if (
                 $this->isUsableAttachment(
                     $attachmentId
@@ -703,10 +964,12 @@ final class WooCommerceImageHealthAuditor
     }
 
     /**
-     * Determine whether an attachment is usable.
+     * Determine whether an existing attachment is usable.
      *
-     * This checks existing WordPress media only.
-     * It never creates or modifies anything.
+     * Attachment type, MIME type, file metadata, and file readability
+     * were checked while building the bounded attachment index.
+     *
+     * This method performs no WordPress metadata API calls and no writes.
      */
     private function isUsableAttachment(
         int $attachmentId
@@ -715,42 +978,8 @@ final class WooCommerceImageHealthAuditor
             return false;
         }
 
-        if (
-            get_post_type($attachmentId)
-            !== 'attachment'
-        ) {
-            return false;
-        }
-
-        $mimeType =
-            get_post_mime_type(
-                $attachmentId
-            );
-
-        if (
-            !is_string($mimeType)
-            || strpos(
-                $mimeType,
-                'image/'
-            ) !== 0
-        ) {
-            return false;
-        }
-
-        $file =
-            get_attached_file(
-                $attachmentId
-            );
-
-        if (
-            !is_string($file)
-            || $file === ''
-        ) {
-            return false;
-        }
-
-        return is_file($file)
-            && is_readable($file);
+        return $this->usableAttachmentIndex[$attachmentId]
+            ?? false;
     }
 
     /**
