@@ -56,6 +56,22 @@ final class Admin
         );
 
         add_action(
+            'admin_post_bp_woocommerce_image_repair_create_batch_run',
+            [
+                $this,
+                'woocommerce_image_repair_create_batch_run',
+            ]
+        );
+
+        add_action(
+            'admin_post_bp_woocommerce_image_repair_execute_batch',
+            [
+                $this,
+                'woocommerce_image_repair_execute_batch',
+            ]
+        );
+
+        add_action(
             'admin_post_bp_verify_snapshot_integrity',
             [
                 $this,
@@ -726,6 +742,114 @@ public function woocommerce_image_repair_preflight(): void
  *
  * Read-only.
  */
+
+/**
+ * Create a frozen Step 7B batch manifest after repeated preflight.
+ */
+public function woocommerce_image_repair_create_batch_run(): void
+{
+    if (!current_user_can('manage_woocommerce')) {
+        wp_die('You do not have permission to create an image repair batch.');
+    }
+
+    check_admin_referer('bp_woocommerce_image_repair_create_batch_run');
+
+    $snapshotUuid = 'e1feb722-4844-4561-bb22-a199a57522d9';
+    $artifactId = isset($_POST['step_7a_artifact_id'])
+        ? sanitize_text_field(wp_unslash($_POST['step_7a_artifact_id']))
+        : '';
+
+    try {
+        $runner = new \BlackPrint\Commerce\Projection\Verification\WooCommerceImageRepairBatchRunner();
+        $operation = $runner->createRun($snapshotUuid, $artifactId, 10);
+    } catch (\Throwable $exception) {
+        $operation = [
+            'success' => false,
+            'status' => 'BATCH_RUN_EXCEPTION',
+            'message' => $exception->getMessage(),
+        ];
+    }
+
+    $this->render_woocommerce_image_repair_batch_action($operation, 'create');
+}
+
+/**
+ * Execute one persisted Step 7B batch. The runner enforces run-state rules.
+ */
+public function woocommerce_image_repair_execute_batch(): void
+{
+    if (!current_user_can('manage_woocommerce')) {
+        wp_die('You do not have permission to execute an image repair batch.');
+    }
+
+    check_admin_referer('bp_woocommerce_image_repair_execute_batch');
+
+    $runId = isset($_POST['run_id'])
+        ? sanitize_text_field(wp_unslash($_POST['run_id']))
+        : '';
+
+    try {
+        $runner = new \BlackPrint\Commerce\Projection\Verification\WooCommerceImageRepairBatchRunner();
+
+        if ($runId === '' || !is_array($runner->getRun($runId))) {
+            $operation = [
+                'success' => false,
+                'status' => 'RUN_NOT_FOUND',
+                'message' => 'The requested persisted batch run could not be found.',
+            ];
+        } else {
+            $operation = $runner->executeNextBatch($runId);
+        }
+    } catch (\Throwable $exception) {
+        $operation = [
+            'success' => false,
+            'status' => 'BATCH_EXECUTION_EXCEPTION',
+            'message' => $exception->getMessage(),
+        ];
+    }
+
+    $this->render_woocommerce_image_repair_batch_action($operation, 'execute', $runId);
+}
+
+/**
+ * Render the outcome and reload persisted state without starting another batch.
+ *
+ * @param array<string, mixed> $operation
+ */
+private function render_woocommerce_image_repair_batch_action(
+    array $operation,
+    string $action,
+    string $requestedRunId = ''
+): void {
+    $runId = (string) (
+        $operation['run_id']
+        ?? ($operation['run']['run_id'] ?? $requestedRunId)
+    );
+
+    $run = null;
+
+    if ($runId !== '') {
+        try {
+            $runner = new \BlackPrint\Commerce\Projection\Verification\WooCommerceImageRepairBatchRunner();
+            $run = $runner->getRun($runId);
+        } catch (\Throwable $exception) {
+            $operation['state_reload_error'] = $exception->getMessage();
+        }
+    }
+
+    $batchActionView = true;
+    $batchActionResult = [
+        'action' => $action,
+        'operation' => $operation,
+        'run_id' => $runId,
+        'run' => $run,
+    ];
+    $result = [];
+
+    include BP_COMMERCE_PATH
+        . 'admin/views/woocommerce-image-repair-preflight.php';
+}
+
 public function woocommerce_image_repair_preflight_page(): void
 {
     $snapshotUuid =

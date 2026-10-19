@@ -61,6 +61,7 @@ $auditSummary =
 
 ?>
 
+<?php if (empty($batchActionView)) : ?>
 <div class="wrap">
 
     <h1>
@@ -449,6 +450,38 @@ $auditSummary =
 
         </table>
 
+
+        <?php
+        $eligibleCount = (int) ($result['eligible_candidates'] ?? 0);
+        $rejectedCount = (int) ($result['rejected_candidates'] ?? -1);
+        ?>
+
+        <?php if (
+            $success
+            && $readOnly
+            && $artifactLoaded
+            && $auditCompleted
+            && $eligibleCount > 0
+            && $rejectedCount === 0
+        ) : ?>
+
+            <h2 style="margin-top: 30px;">Create Controlled Repair Run</h2>
+
+            <p>
+                This creates a persisted manifest after repeating the read-only
+                preflight against this exact snapshot and Step 7A artifact.
+                It does not repair images.
+            </p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="bp_woocommerce_image_repair_create_batch_run">
+                <input type="hidden" name="step_7a_artifact_id" value="<?php echo esc_attr($artifactId); ?>">
+                <?php wp_nonce_field('bp_woocommerce_image_repair_create_batch_run'); ?>
+                <?php submit_button('Create Batch Run (maximum 10 products per batch)'); ?>
+            </form>
+
+        <?php endif; ?>
+
         <h2 style="margin-top: 30px;">
             Rejection Reasons
         </h2>
@@ -639,3 +672,121 @@ $auditSummary =
     <?php endif; ?>
 
 </div>
+
+
+<?php else : ?>
+
+<?php
+$batchActionResult = is_array($batchActionResult ?? null)
+    ? $batchActionResult
+    : [];
+$operation = is_array($batchActionResult['operation'] ?? null)
+    ? $batchActionResult['operation']
+    : [];
+$run = is_array($batchActionResult['run'] ?? null)
+    ? $batchActionResult['run']
+    : [];
+$runId = (string) ($batchActionResult['run_id'] ?? '');
+$runStatus = strtoupper((string) ($run['status'] ?? ''));
+$cursor = (int) ($run['next_index'] ?? 0);
+$manifestCount = (int) ($run['manifest_count'] ?? 0);
+$batchSize = (int) ($run['batch_size'] ?? 10);
+$inProgress = false;
+
+foreach (['in_progress', 'in_progress_index', 'in_progress_item'] as $key) {
+    if (
+        array_key_exists($key, $run)
+        && $run[$key] !== null
+        && $run[$key] !== false
+        && $run[$key] !== ''
+    ) {
+        $inProgress = true;
+    }
+}
+
+$outcomes = is_array($run['outcomes'] ?? null) ? $run['outcomes'] : [];
+
+foreach ($outcomes as $outcome) {
+    if (
+        is_array($outcome)
+        && (int) ($outcome['manifest_index'] ?? -1) === $cursor
+        && strtoupper((string) ($outcome['status'] ?? '')) === 'IN_PROGRESS'
+    ) {
+        $inProgress = true;
+    }
+}
+
+$canExecute = $runId !== ''
+    && in_array($runStatus, ['READY', 'RUNNING'], true)
+    && $cursor < $manifestCount
+    && !$inProgress;
+?>
+
+<div class="wrap">
+    <h1>BlackPrint — Step 7B Batch Run</h1>
+
+    <p>
+        Batch execution is separate from preflight. Each execution request
+        processes at most the batch size saved in the persisted run.
+    </p>
+
+    <?php if (!empty($operation['success'])) : ?>
+        <div class="notice notice-success"><p>
+            <?php echo esc_html((string) ($operation['message'] ?? 'The requested batch action completed.')); ?>
+        </p></div>
+    <?php else : ?>
+        <div class="notice notice-error"><p>
+            <strong><?php echo esc_html((string) ($operation['status'] ?? 'BATCH_ACTION_FAILED')); ?></strong>
+            <?php echo esc_html((string) ($operation['message'] ?? 'The batch action did not complete successfully.')); ?>
+        </p></div>
+    <?php endif; ?>
+
+    <?php if ($runId !== '') : ?>
+        <h2>Persisted Run State</h2>
+        <table class="widefat striped" style="max-width: 900px;">
+            <tbody>
+                <tr><td><strong>Run ID</strong></td><td><code><?php echo esc_html($runId); ?></code></td></tr>
+                <tr><td><strong>Snapshot UUID</strong></td><td><code><?php echo esc_html((string) ($run['snapshot_uuid'] ?? '')); ?></code></td></tr>
+                <tr><td><strong>Step 7A artifact</strong></td><td><code><?php echo esc_html((string) ($run['step_7a_artifact_id'] ?? '')); ?></code></td></tr>
+                <tr><td><strong>Run status</strong></td><td><?php echo esc_html($runStatus !== '' ? $runStatus : 'UNAVAILABLE'); ?></td></tr>
+                <tr><td><strong>Cursor / manifest count</strong></td><td><?php echo esc_html((string) $cursor . ' / ' . (string) $manifestCount); ?></td></tr>
+                <tr><td><strong>Stored batch size</strong></td><td><?php echo esc_html((string) $batchSize); ?></td></tr>
+                <?php if (array_key_exists('processed_this_batch', $operation)) : ?>
+                    <tr><td><strong>Processed in last request</strong></td><td><?php echo esc_html((string) (int) $operation['processed_this_batch']); ?></td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <?php if (!empty($operation['state_reload_error'])) : ?>
+            <div class="notice notice-error"><p>
+                Persisted state reload error: <?php echo esc_html((string) $operation['state_reload_error']); ?>
+            </p></div>
+        <?php endif; ?>
+
+        <?php if ($canExecute) : ?>
+            <h2 style="margin-top: 25px;">Execute Next Batch</h2>
+            <p>
+                This is a live operation. It may download canonical images,
+                create media attachments, and assign featured images to
+                validated existing owned products.
+            </p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="bp_woocommerce_image_repair_execute_batch">
+                <input type="hidden" name="run_id" value="<?php echo esc_attr($runId); ?>">
+                <?php wp_nonce_field('bp_woocommerce_image_repair_execute_batch'); ?>
+                <?php submit_button('Execute Next Batch (' . min($batchSize, $manifestCount - $cursor) . ' maximum)'); ?>
+            </form>
+        <?php elseif ($inProgress) : ?>
+            <div class="notice notice-warning"><p>
+                An in-progress marker exists at the current cursor. Automatic
+                continuation is withheld; reconcile this run before retrying.
+            </p></div>
+        <?php elseif ($cursor >= $manifestCount && $manifestCount > 0) : ?>
+            <div class="notice notice-success"><p>The persisted manifest cursor has reached the end.</p></div>
+        <?php endif; ?>
+    <?php else : ?>
+        <p>No persisted run could be loaded for display. Do not execute a batch until its run ID and state can be verified.</p>
+    <?php endif; ?>
+</div>
+
+<?php endif; ?>

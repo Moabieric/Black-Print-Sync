@@ -51,6 +51,12 @@ require_once BP_COMMERCE_PATH
     . 'projection/verification/WooCommerceImageRepairOrchestrator.php';
 
 require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceImageRepairBatchStore.php';
+
+require_once BP_COMMERCE_PATH
+    . 'projection/verification/WooCommerceImageRepairBatchRunner.php';
+
+require_once BP_COMMERCE_PATH
     . 'projection/woocommerce/WooCommerceOwnershipCommitter.php';
 
 require_once BP_COMMERCE_PATH
