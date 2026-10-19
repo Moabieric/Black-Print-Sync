@@ -1,0 +1,610 @@
+<?php
+
+declare(strict_types=1);
+
+namespace BlackPrint\Commerce\Projection\Verification;
+
+defined('ABSPATH') || exit;
+
+/**
+ * Persistent manifest and run-state store for Step 7B.
+ *
+ * This class does not execute repairs and does not modify products.
+ * The manifest is immutable; only execution state and outcomes change.
+ */
+final class WooCommerceImageRepairBatchStore
+{
+    private const OPTION_PREFIX =
+        'blackprint_step_7b_image_repair_run_';
+
+    private const LOCK_PREFIX =
+        'blackprint_step_7b_image_repair_lock_';
+
+    private const VERSION = 1;
+
+    private const MAX_BATCH_SIZE = 10;
+
+    private const LOCK_TTL = 900;
+
+    /**
+     * Create a frozen manifest from explicitly preflighted candidates.
+     *
+     * @param array<int, array<string, mixed>> $eligibleCandidates
+     * @return array<string, mixed>
+     */
+    public function createRun(
+        string $snapshotUuid,
+        string $step7aArtifactId,
+        array $eligibleCandidates,
+        int $batchSize = 10
+    ): array {
+        $snapshotUuid = trim($snapshotUuid);
+        $step7aArtifactId = trim($step7aArtifactId);
+
+        if ($snapshotUuid === '' || $step7aArtifactId === '') {
+            return $this->failure(
+                'INVALID_RUN_IDENTITY',
+                'Snapshot UUID and explicit Step 7A artifact ID are required.'
+            );
+        }
+
+        if (
+            $batchSize < 1
+            || $batchSize > self::MAX_BATCH_SIZE
+        ) {
+            return $this->failure(
+                'INVALID_BATCH_SIZE',
+                'Batch size must be between 1 and 10.'
+            );
+        }
+
+        if ($eligibleCandidates === []) {
+            return $this->failure(
+                'EMPTY_MANIFEST',
+                'No eligible candidates were supplied.'
+            );
+        }
+
+        $manifest = [];
+        $seenProductIds = [];
+
+        foreach ($eligibleCandidates as $candidate) {
+            if (!is_array($candidate)) {
+                return $this->failure(
+                    'INVALID_CANDIDATE',
+                    'The manifest contains a non-array candidate.'
+                );
+            }
+
+            $productId = (int) ($candidate['woo_product_id'] ?? 0);
+            $canonicalCode = trim(
+                (string) ($candidate['canonical_code'] ?? '')
+            );
+
+            if ($productId <= 0 || $canonicalCode === '') {
+                return $this->failure(
+                    'INVALID_CANDIDATE',
+                    'Every candidate requires a valid product ID and canonical code.'
+                );
+            }
+
+            if (isset($seenProductIds[$productId])) {
+                return $this->failure(
+                    'DUPLICATE_PRODUCT_ID',
+                    sprintf(
+                        'WooCommerce product ID %d appears more than once.',
+                        $productId
+                    )
+                );
+            }
+
+            $seenProductIds[$productId] = true;
+
+            $requiredFlags = [
+                'repair_allowed',
+                'requires_deterministic_canonical_image',
+                'requires_existing_owned_woocommerce_product',
+                'requires_step_7_validation',
+            ];
+
+            foreach ($requiredFlags as $flag) {
+                if (empty($candidate[$flag])) {
+                    return $this->failure(
+                        'CANDIDATE_SAFETY_CHECK_FAILED',
+                        sprintf(
+                            'Product %d is missing required safety flag "%s".',
+                            $productId,
+                            $flag
+                        )
+                    );
+                }
+            }
+
+            if (
+                ($candidate['repair_authority'] ?? '')
+                !== 'canonical_blackprint_media'
+            ) {
+                return $this->failure(
+                    'CANDIDATE_SAFETY_CHECK_FAILED',
+                    sprintf(
+                        'Product %d has an invalid repair authority.',
+                        $productId
+                    )
+                );
+            }
+
+            if (
+                trim((string) ($candidate['snapshot_uuid'] ?? ''))
+                    !== $snapshotUuid
+                || trim(
+                    (string) ($candidate['step_7a_artifact_id'] ?? '')
+                ) !== $step7aArtifactId
+            ) {
+                return $this->failure(
+                    'CANDIDATE_ARTIFACT_MISMATCH',
+                    sprintf(
+                        'Product %d does not match the requested snapshot and Step 7A artifact.',
+                        $productId
+                    )
+                );
+            }
+
+            if (
+                strtoupper(
+                    trim(
+                        (string) (
+                            $candidate['step_7a_resolution_status'] ?? ''
+                        )
+                    )
+                ) !== 'RESOLVED'
+                || empty($candidate['step_7a_resolution_verified'])
+            ) {
+                return $this->failure(
+                    'STEP_7A_RESOLUTION_NOT_VERIFIED',
+                    sprintf(
+                        'Product %d lacks a verified deterministic Step 7A resolution.',
+                        $productId
+                    )
+                );
+            }
+
+            /*
+             * Keep only the explicit repair contract.
+             * Do not store unnecessary audit payloads in the manifest.
+             */
+            $manifest[] = [
+                'woo_product_id' => $productId,
+                'canonical_code' => $canonicalCode,
+                'repair_allowed' => true,
+                'repair_authority' => 'canonical_blackprint_media',
+                'requires_deterministic_canonical_image' => true,
+                'requires_existing_owned_woocommerce_product' => true,
+                'requires_step_7_validation' => true,
+                'snapshot_uuid' => $snapshotUuid,
+                'step_7a_artifact_id' => $step7aArtifactId,
+                'step_7a_resolution_status' => 'RESOLVED',
+                'step_7a_resolution_verified' => true,
+            ];
+        }
+
+        $manifestJson = wp_json_encode(
+            $manifest,
+            JSON_UNESCAPED_SLASHES
+        );
+
+        if (!is_string($manifestJson)) {
+            return $this->failure(
+                'MANIFEST_ENCODING_FAILED',
+                'The candidate manifest could not be encoded.'
+            );
+        }
+
+        $runId = bin2hex(random_bytes(32));
+        $now = time();
+
+        $run = [
+            'version' => self::VERSION,
+            'run_id' => $runId,
+            'created_at' => $now,
+            'updated_at' => $now,
+            'snapshot_uuid' => $snapshotUuid,
+            'step_7a_artifact_id' => $step7aArtifactId,
+            'batch_size' => $batchSize,
+            'manifest_count' => count($manifest),
+            'manifest' => $manifest,
+            'manifest_sha256' => hash('sha256', $manifestJson),
+            'next_index' => 0,
+            'status' => 'READY',
+            'outcomes' => [],
+        ];
+
+        if (
+            !add_option(
+                $this->optionName($runId),
+                $run,
+                '',
+                false
+            )
+        ) {
+            return $this->failure(
+                'RUN_PERSISTENCE_FAILED',
+                'WordPress could not persist the new repair run.'
+            );
+        }
+
+        return [
+            'success' => true,
+            'run_id' => $runId,
+            'manifest_count' => count($manifest),
+            'batch_size' => $batchSize,
+            'status' => 'READY',
+        ];
+    }
+
+    /**
+     * Load a run and verify the frozen manifest checksum.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function loadRun(string $runId): ?array
+    {
+        $runId = strtolower(trim($runId));
+
+        if (!$this->isValidRunId($runId)) {
+            return null;
+        }
+
+        $run = get_option($this->optionName($runId), null);
+
+        if (
+            !is_array($run)
+            || ($run['version'] ?? null) !== self::VERSION
+            || ($run['run_id'] ?? '') !== $runId
+            || !isset($run['manifest'])
+            || !is_array($run['manifest'])
+        ) {
+            return null;
+        }
+
+        $manifestJson = wp_json_encode(
+            $run['manifest'],
+            JSON_UNESCAPED_SLASHES
+        );
+
+        if (
+            !is_string($manifestJson)
+            || !isset($run['manifest_sha256'])
+            || !is_string($run['manifest_sha256'])
+            || !hash_equals(
+                $run['manifest_sha256'],
+                hash('sha256', $manifestJson)
+            )
+            || count($run['manifest']) !== (int) ($run['manifest_count'] ?? -1)
+        ) {
+            return null;
+        }
+
+        $manifestCount = count($run['manifest']);
+        $nextIndex = (int) ($run['next_index'] ?? -1);
+        $status = $run['status'] ?? null;
+        $outcomes = $run['outcomes'] ?? null;
+
+        $allowedStatuses = [
+            'READY',
+            'RUNNING',
+            'NEEDS_RECONCILIATION',
+            'COMPLETED',
+            'COMPLETED_WITH_ERRORS',
+        ];
+
+        if (
+            $nextIndex < 0
+            || $nextIndex > $manifestCount
+            || (int) ($run['batch_size'] ?? 0) < 1
+            || (int) $run['batch_size'] > self::MAX_BATCH_SIZE
+            || !is_string($status)
+            || !in_array($status, $allowedStatuses, true)
+            || !is_array($outcomes)
+        ) {
+            return null;
+        }
+
+        for ($index = 0; $index < $nextIndex; $index++) {
+            if (
+                !isset($outcomes[$index])
+                || !is_array($outcomes[$index])
+                || (int) ($outcomes[$index]['manifest_index'] ?? -1) !== $index
+                || !isset($outcomes[$index]['status'])
+                || !is_string($outcomes[$index]['status'])
+                || $outcomes[$index]['status'] === ''
+                || $outcomes[$index]['status'] === 'IN_PROGRESS'
+            ) {
+                return null;
+            }
+        }
+
+        foreach ($outcomes as $key => $outcome) {
+            if (
+                (!is_int($key) && !ctype_digit((string) $key))
+                || !is_array($outcome)
+            ) {
+                return null;
+            }
+
+            $outcomeIndex = (int) $key;
+
+            if (
+                $outcomeIndex < 0
+                || $outcomeIndex >= $manifestCount
+                || $outcomeIndex > $nextIndex
+                || (int) ($outcome['manifest_index'] ?? -1) !== $outcomeIndex
+                || !isset($outcome['status'])
+                || !is_string($outcome['status'])
+                || $outcome['status'] === ''
+            ) {
+                return null;
+            }
+
+            if (
+                $outcomeIndex === $nextIndex
+                && $outcome['status'] !== 'IN_PROGRESS'
+            ) {
+                return null;
+            }
+        }
+
+        $hasInProgress = isset($outcomes[$nextIndex])
+            && is_array($outcomes[$nextIndex])
+            && ($outcomes[$nextIndex]['status'] ?? '') === 'IN_PROGRESS';
+
+        $hasFailures = false;
+        $allOutcomesSuccessful = true;
+
+        foreach ($outcomes as $savedOutcome) {
+            if (
+                !is_array($savedOutcome)
+                || !array_key_exists('success', $savedOutcome)
+                || !is_bool($savedOutcome['success'])
+            ) {
+                return null;
+            }
+
+            if (!$savedOutcome['success']) {
+                $hasFailures = true;
+                $allOutcomesSuccessful = false;
+            }
+        }
+
+        if (
+            ($status === 'READY'
+                && ($nextIndex !== 0 || $outcomes !== []))
+            || ($status === 'RUNNING'
+                && $nextIndex === 0
+                && !$hasInProgress)
+            || ($status === 'NEEDS_RECONCILIATION' && !$hasInProgress)
+            || ($hasInProgress
+                && !in_array($status, ['RUNNING', 'NEEDS_RECONCILIATION'], true))
+            || ($status === 'COMPLETED'
+                && (
+                    $nextIndex !== $manifestCount
+                    || !$allOutcomesSuccessful
+                    || $hasFailures
+                ))
+            || ($status === 'COMPLETED_WITH_ERRORS'
+                && (
+                    $nextIndex !== $manifestCount
+                    || !$hasFailures
+                ))
+            || ($nextIndex === $manifestCount
+                && !in_array(
+                    $status,
+                    ['COMPLETED', 'COMPLETED_WITH_ERRORS'],
+                    true
+                ))
+        ) {
+            return null;
+        }
+
+        return $run;
+    }
+
+    /**
+     * Acquire an exclusive per-run lock.
+     *
+     * @return string|false Lock token on success.
+     */
+    public function acquireLock(string $runId): string|false
+    {
+        $runId = strtolower(trim($runId));
+
+        if (!$this->isValidRunId($runId)) {
+            return false;
+        }
+
+        $lockName = $this->lockName($runId);
+        $token = bin2hex(random_bytes(16));
+
+        $lock = [
+            'token' => $token,
+            'acquired_at' => time(),
+        ];
+
+        if (add_option($lockName, $lock, '', false)) {
+            return $token;
+        }
+
+        /*
+         * Fail closed if a lock already exists.
+         *
+         * Do not delete a lock based only on its age: a slow request
+         * may still be executing. Interrupted runs require explicit
+         * reconciliation before another execution attempt.
+         */
+        return false;
+    }
+
+    /**
+     * Release a lock only when its token matches.
+     */
+    public function releaseLock(
+        string $runId,
+        string $token
+    ): bool {
+        $runId = strtolower(trim($runId));
+
+        if (!$this->isValidRunId($runId) || $token === '') {
+            return false;
+        }
+
+        $lockName = $this->lockName($runId);
+        $lock = get_option($lockName, null);
+
+        if (
+            !is_array($lock)
+            || !isset($lock['token'])
+            || !is_string($lock['token'])
+            || !hash_equals($lock['token'], $token)
+        ) {
+            return false;
+        }
+
+        return delete_option($lockName);
+    }
+
+    /**
+     * Save mutable run state while the caller holds the run lock.
+     *
+     * The manifest checksum must still match the original manifest.
+     *
+     * @param array<string, mixed> $run
+     */
+    public function saveRun(
+        string $runId,
+        array $run,
+        string $lockToken
+    ): bool {
+        $runId = strtolower(trim($runId));
+
+        if (
+            !$this->isValidRunId($runId)
+            || $lockToken === ''
+            || ($run['run_id'] ?? '') !== $runId
+            || !in_array(
+                $run['status'] ?? '',
+                [
+                    'READY',
+                    'RUNNING',
+                    'NEEDS_RECONCILIATION',
+                    'COMPLETED',
+                    'COMPLETED_WITH_ERRORS',
+                ],
+                true
+            )
+            || !is_array($run['outcomes'] ?? null)
+        ) {
+            return false;
+        }
+
+        $lock = get_option($this->lockName($runId), null);
+
+        if (
+            !is_array($lock)
+            || !isset($lock['token'])
+            || !is_string($lock['token'])
+            || !hash_equals($lock['token'], $lockToken)
+        ) {
+            return false;
+        }
+
+        /*
+         * The immutable identity must match the originally persisted run.
+         * A caller cannot replace both the manifest and its checksum.
+         */
+        $persistedRun = get_option($this->optionName($runId), null);
+
+        if (
+            !is_array($persistedRun)
+            || ($persistedRun['run_id'] ?? '') !== $runId
+            || ($persistedRun['version'] ?? null) !== self::VERSION
+            || !isset($persistedRun['manifest_sha256'])
+            || !is_string($persistedRun['manifest_sha256'])
+            || !isset($run['manifest_sha256'])
+            || !is_string($run['manifest_sha256'])
+            || !hash_equals(
+                $persistedRun['manifest_sha256'],
+                $run['manifest_sha256']
+            )
+            || ($persistedRun['snapshot_uuid'] ?? null)
+                !== ($run['snapshot_uuid'] ?? null)
+            || ($persistedRun['step_7a_artifact_id'] ?? null)
+                !== ($run['step_7a_artifact_id'] ?? null)
+            || ($persistedRun['batch_size'] ?? null)
+                !== ($run['batch_size'] ?? null)
+            || ($persistedRun['manifest_count'] ?? null)
+                !== ($run['manifest_count'] ?? null)
+            || !isset($persistedRun['manifest'])
+            || !is_array($persistedRun['manifest'])
+            || !isset($run['manifest'])
+            || !is_array($run['manifest'])
+            || $persistedRun['manifest'] !== $run['manifest']
+        ) {
+            return false;
+        }
+
+        $manifestJson = wp_json_encode(
+            $run['manifest'] ?? null,
+            JSON_UNESCAPED_SLASHES
+        );
+
+        if (
+            !is_string($manifestJson)
+            || !isset($run['manifest_sha256'])
+            || !is_string($run['manifest_sha256'])
+            || !hash_equals(
+                $run['manifest_sha256'],
+                hash('sha256', $manifestJson)
+            )
+            || count($run['manifest'] ?? [])
+                !== (int) ($run['manifest_count'] ?? -1)
+        ) {
+            return false;
+        }
+
+        $run['updated_at'] = time();
+
+        return update_option(
+            $this->optionName($runId),
+            $run,
+            false
+        );
+    }
+
+    private function isValidRunId(string $runId): bool
+    {
+        return (bool) preg_match('/^[a-f0-9]{64}$/', $runId);
+    }
+
+    private function optionName(string $runId): string
+    {
+        return self::OPTION_PREFIX . $runId;
+    }
+
+    private function lockName(string $runId): string
+    {
+        return self::LOCK_PREFIX . $runId;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function failure(
+        string $status,
+        string $message
+    ): array {
+        return [
+            'success' => false,
+            'status' => $status,
+            'message' => $message,
+        ];
+    }
+}
