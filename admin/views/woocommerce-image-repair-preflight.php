@@ -757,7 +757,163 @@ $canExecute = $runId !== ''
             </tbody>
         </table>
 
-        <?php if (!empty($operation['state_reload_error'])) : ?>
+        <?php
+$orderedOutcomes = [];
+foreach ($outcomes as $outcomeKey => $outcomeRecord) {
+    if (is_array($outcomeRecord)) {
+        $orderedOutcomes[] = $outcomeRecord;
+    }
+}
+
+usort(
+    $orderedOutcomes,
+    static function (array $a, array $b): int {
+        return (int) ($a['manifest_index'] ?? -1)
+            <=> (int) ($b['manifest_index'] ?? -1);
+    }
+);
+
+$outcomeSuccessCount = 0;
+$outcomeFailureCount = 0;
+$outcomeInProgressCount = 0;
+$outcomeUnknownCount = 0;
+
+foreach ($orderedOutcomes as $outcomeRecord) {
+    $outcomeStatus = strtoupper(
+        (string) ($outcomeRecord['status'] ?? 'UNKNOWN')
+    );
+
+    if ($outcomeStatus === 'IN_PROGRESS') {
+        $outcomeInProgressCount++;
+    } elseif (!array_key_exists('success', $outcomeRecord)) {
+        $outcomeUnknownCount++;
+    } elseif (!empty($outcomeRecord['success'])) {
+        $outcomeSuccessCount++;
+    } else {
+        $outcomeFailureCount++;
+    }
+}
+?>
+
+<h2 style="margin-top: 25px;">Persisted Product Outcomes</h2>
+
+<p>
+    These are saved records from the batch run. Viewing this table is
+    read-only and does not retry, repair, or modify any product.
+</p>
+
+<div style="max-height: 520px; overflow: auto; border: 1px solid #c3c4c7;">
+<table class="widefat striped" style="min-width: 1100px; margin-bottom: 0;">
+    <thead>
+        <tr>
+            <th>Manifest index</th>
+            <th>WooCommerce product</th>
+            <th>Canonical code</th>
+            <th>Result</th>
+            <th>Status</th>
+            <th>Attachment ID</th>
+            <th>Completed (site time)</th>
+            <th>Error</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php if (empty($orderedOutcomes)) : ?>
+            <tr>
+                <td colspan="8">No persisted product outcomes are available.</td>
+            </tr>
+        <?php else : ?>
+            <?php foreach ($orderedOutcomes as $outcomeRecord) : ?>
+                <?php
+                $recordStatus = (string) (
+                    $outcomeRecord['status'] ?? 'UNKNOWN'
+                );
+                $hasSuccess = array_key_exists('success', $outcomeRecord);
+                $recordSuccess = $hasSuccess
+                    ? !empty($outcomeRecord['success'])
+                    : null;
+                $completedAt = (int) (
+                    $outcomeRecord['completed_at'] ?? 0
+                );
+                $attachmentId = (int) (
+                    $outcomeRecord['attachment_id'] ?? 0
+                );
+                ?>
+                <tr>
+                    <td>
+                        <?php
+                        echo esc_html(
+                            (string) ((int) ($outcomeRecord['manifest_index'] ?? -1))
+                        );
+                        ?>
+                    </td>
+                    <td>
+                        <?php
+                        echo esc_html(
+                            (string) ((int) ($outcomeRecord['woo_product_id'] ?? 0))
+                        );
+                        ?>
+                    </td>
+                    <td>
+                        <code><?php
+                            echo esc_html(
+                                (string) ($outcomeRecord['canonical_code'] ?? '')
+                            );
+                        ?></code>
+                    </td>
+                    <td>
+                        <?php
+                        echo esc_html(
+                            $recordSuccess === null
+                                ? 'UNKNOWN'
+                                : ($recordSuccess ? 'SUCCESS' : 'FAILURE')
+                        );
+                        ?>
+                    </td>
+                    <td><?php echo esc_html($recordStatus); ?></td>
+                    <td>
+                        <?php
+                        echo esc_html(
+                            $attachmentId > 0 ? (string) $attachmentId : 'Not recorded'
+                        );
+                        ?>
+                    </td>
+                    <td>
+                        <?php
+                        echo esc_html(
+                            $completedAt > 0
+                                ? wp_date(
+                                    'Y-m-d H:i:s',
+                                    $completedAt,
+                                    wp_timezone()
+                                )
+                                : 'Not recorded'
+                        );
+                        ?>
+                    </td>
+                    <td>
+                        <?php
+                        echo esc_html(
+                            (string) ($outcomeRecord['error'] ?? '')
+                        );
+                        ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </tbody>
+</table>
+</div>
+
+<p>
+    <strong>Saved outcome counts:</strong>
+    <?php echo esc_html((string) count($orderedOutcomes)); ?> total;
+    <?php echo esc_html((string) $outcomeSuccessCount); ?> successful;
+    <?php echo esc_html((string) $outcomeFailureCount); ?> failed;
+    <?php echo esc_html((string) $outcomeInProgressCount); ?> in progress;
+    <?php echo esc_html((string) $outcomeUnknownCount); ?> unknown.
+</p>
+
+<?php if (!empty($operation['state_reload_error'])) : ?>
             <div class="notice notice-error"><p>
                 Persisted state reload error: <?php echo esc_html((string) $operation['state_reload_error']); ?>
             </p></div>

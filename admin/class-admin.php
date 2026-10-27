@@ -40,6 +40,14 @@ final class Admin
         );
 
         add_action(
+            'admin_post_bp_run_amrod_category_ingestion',
+            [
+                $this,
+                'run_amrod_category_ingestion',
+            ]
+        );
+
+        add_action(
             'admin_post_bp_test_canonical_primary_image_resolver',
             [
                 $this,
@@ -1371,6 +1379,111 @@ public function canonical_primary_image_resolver(): void
 
         include BP_COMMERCE_PATH
             . 'admin/views/amrod-brands.php';
+    }
+
+
+    /**
+     * Capture Amrod's complete category tree as an immutable snapshot.
+     *
+     * This action does not create or modify WooCommerce terms or products.
+     */
+    public function run_amrod_category_ingestion(): void
+    {
+        if (! current_user_can('manage_woocommerce')) {
+            wp_die(
+                'You do not have permission to run Amrod category ingestion.',
+                '',
+                ['response' => 403]
+            );
+        }
+
+        check_admin_referer(
+            'bp_run_amrod_category_ingestion'
+        );
+
+        $redirect_base = admin_url(
+            'admin.php?page=blackprint-amrod-categories'
+        );
+
+        try {
+            $result = bp_commerce()
+                ->syncManager()
+                ->dispatch(
+                    'amrod',
+                    'categories',
+                    [
+                        'job_type' => 'manual',
+                        'triggered_by' => 'admin_category_ingestion',
+                    ]
+                );
+
+            $metadata = $result->metadata();
+
+            $query_args = [
+                'bp_category_sync' => $result->success()
+                    ? 'success'
+                    : 'failed',
+                'bp_category_job_uuid' =>
+                    isset($metadata['job_uuid'])
+                    && is_string($metadata['job_uuid'])
+                        ? $metadata['job_uuid']
+                        : '',
+                'bp_category_snapshot_uuid' =>
+                    $result->snapshotId() ?? '',
+            ];
+
+            foreach (
+                [
+                    'root_category_count',
+                    'total_category_count',
+                    'maximum_depth',
+                ] as $key
+            ) {
+                if (
+                    isset($metadata[$key])
+                    && is_numeric($metadata[$key])
+                ) {
+                    $query_args['bp_category_' . $key] =
+                        (string) (int) $metadata[$key];
+                }
+            }
+
+            if ($result->hasErrors()) {
+                error_log(
+                    sprintf(
+                        '[BlackPrint Commerce] Amrod category ingestion returned errors: %s',
+                        implode(' | ', $result->errors())
+                    )
+                );
+
+                $query_args['bp_category_sync_error'] =
+                    'Category ingestion reported errors. Check the server PHP error log for details.';
+            }
+
+            $redirect = add_query_arg(
+                $query_args,
+                $redirect_base
+            );
+        } catch (\Throwable $exception) {
+            error_log(
+                sprintf(
+                    '[BlackPrint Commerce] Amrod category ingestion failed: %s',
+                    $exception->getMessage()
+                )
+            );
+
+            $redirect = add_query_arg(
+                [
+                    'bp_category_sync' => 'exception',
+                    'bp_category_sync_error' =>
+                        'Category ingestion failed. Check the server PHP error log for details.',
+                ],
+                $redirect_base
+            );
+        }
+
+        wp_safe_redirect($redirect);
+        exit;
     }
 
 

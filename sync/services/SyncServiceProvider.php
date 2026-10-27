@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace BlackPrint\Commerce\Sync\Services;
 
 use BlackPrint\Commerce\Sync\Jobs\ProductSyncJob;
+use BlackPrint\Commerce\Sync\Jobs\CategorySyncJob;
 use BlackPrint\Commerce\Sync\Kernel\JobDispatcher;
 use BlackPrint\Commerce\Sync\Kernel\JobRunner;
 use BlackPrint\Commerce\Sync\Kernel\SyncManager;
@@ -127,6 +128,17 @@ final class SyncServiceProvider
 
         $dispatcher->register(
             $productJob
+        );
+
+        $categoryJob = new CategorySyncJob(
+            apiClient: $apiClient,
+            snapshots: $snapshots,
+            payloads: $payloads,
+            db: $wpdb
+        );
+
+        $dispatcher->register(
+            $categoryJob
         );
 
         /*

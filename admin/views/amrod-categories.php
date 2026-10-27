@@ -39,6 +39,108 @@ if (
         Amrod Vendor API.
     </p>
 
+    <?php
+    $category_sync_status = isset($_GET['bp_category_sync'])
+        ? sanitize_key(wp_unslash($_GET['bp_category_sync']))
+        : '';
+
+    $category_sync_error = isset($_GET['bp_category_sync_error'])
+        ? sanitize_text_field(
+            wp_unslash($_GET['bp_category_sync_error'])
+        )
+        : '';
+
+    $category_sync_fields = [
+        'job_uuid' => 'Sync job UUID',
+        'snapshot_uuid' => 'Snapshot UUID',
+        'root_category_count' => 'Root categories',
+        'total_category_count' => 'Total categories, including descendants',
+        'maximum_depth' => 'Maximum tree depth',
+    ];
+
+    $category_sync_values = [];
+
+    foreach ($category_sync_fields as $key => $label) {
+        $query_key = 'bp_category_' . $key;
+
+        if (isset($_GET[$query_key])) {
+            $category_sync_values[$key] = sanitize_text_field(
+                wp_unslash($_GET[$query_key])
+            );
+        }
+    }
+    ?>
+
+    <?php if ($category_sync_status === 'success') : ?>
+
+        <div class="notice notice-success inline">
+            <p><strong>Amrod category snapshot captured successfully.</strong></p>
+
+            <p>
+                The validated supplier category tree was saved through
+                the BlackPrint snapshot pipeline. WooCommerce categories
+                and products were not modified.
+            </p>
+
+            <ul>
+                <?php foreach ($category_sync_fields as $key => $label) : ?>
+                    <?php if (isset($category_sync_values[$key])) : ?>
+                        <li>
+                            <strong><?php echo esc_html($label); ?>:</strong>
+                            <code><?php echo esc_html($category_sync_values[$key]); ?></code>
+                        </li>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+
+    <?php elseif (
+        $category_sync_status === 'failed'
+        || $category_sync_status === 'exception'
+    ) : ?>
+
+        <div class="notice notice-error inline">
+            <p>
+                <strong>Amrod category snapshot failed.</strong>
+                No successful snapshot should be assumed.
+            </p>
+
+            <?php if ($category_sync_error !== '') : ?>
+                <p><?php echo esc_html($category_sync_error); ?></p>
+            <?php endif; ?>
+        </div>
+
+    <?php endif; ?>
+
+    <form
+        method="post"
+        action="<?php echo esc_url(admin_url('admin-post.php')); ?>"
+        style="margin: 16px 0;"
+    >
+        <input
+            type="hidden"
+            name="action"
+            value="bp_run_amrod_category_ingestion"
+        >
+
+        <?php
+        wp_nonce_field(
+            'bp_run_amrod_category_ingestion'
+        );
+        ?>
+
+        <button type="submit" class="button button-primary">
+            Capture Category Snapshot
+        </button>
+
+        <p class="description">
+            Fetches the Amrod category tree and stores an immutable raw
+            snapshot. This does not create, assign, rename, or delete
+            WooCommerce categories or products.
+        </p>
+    </form>
+
+
 
     <?php if ($error !== '') : ?>
 

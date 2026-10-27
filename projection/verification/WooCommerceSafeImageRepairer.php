@@ -209,11 +209,9 @@ final class WooCommerceSafeImageRepairer
                 return $this->result(
                     $candidate,
                     'ALREADY_HEALTHY',
-                    ''
-                ) + [
-                    'attachment_id' =>
-                        $currentThumbnailId,
-                ];
+                    '',
+                    $currentThumbnailId
+                );
             }
         }
 
@@ -276,11 +274,9 @@ final class WooCommerceSafeImageRepairer
             return $this->result(
                 $candidate,
                 (string) $ownership['status'],
-                (string) $ownership['error']
-            ) + [
-                'attachment_id' =>
-                    $attachmentId,
-            ];
+                (string) $ownership['error'],
+                $attachmentId
+            );
         }
 
         /*
@@ -298,11 +294,9 @@ final class WooCommerceSafeImageRepairer
             return $this->result(
                 $candidate,
                 'FEATURED_IMAGE_ASSIGNMENT_FAILED',
-                'WordPress failed to assign the imported attachment as the featured image.'
-            ) + [
-                'attachment_id' =>
-                    $attachmentId,
-            ];
+                'WordPress failed to assign the imported attachment as the featured image.',
+                $attachmentId
+            );
         }
 
         /*
@@ -319,10 +313,9 @@ final class WooCommerceSafeImageRepairer
             return $this->result(
                 $candidate,
                 'FEATURED_IMAGE_ASSIGNMENT_FAILED',
-                'Featured image assignment could not be verified.'
+                'Featured image assignment could not be verified.',
+                $attachmentId
             ) + [
-                'attachment_id' =>
-                    $attachmentId,
                 'verified_attachment_id' =>
                     $verifiedThumbnailId,
             ];
@@ -331,10 +324,9 @@ final class WooCommerceSafeImageRepairer
         return $this->result(
             $candidate,
             'REPAIR_VERIFIED',
-            ''
+            '',
+            $attachmentId
         ) + [
-            'attachment_id' =>
-                $attachmentId,
             'image_url' =>
                 $imageUrl,
             'verified_attachment_id' =>
@@ -778,7 +770,8 @@ final class WooCommerceSafeImageRepairer
     private function result(
         array $candidate,
         string $status,
-        string $error
+        string $error,
+        int $attachmentId = 0
     ): array {
         return [
             'success' =>
@@ -801,7 +794,7 @@ final class WooCommerceSafeImageRepairer
                 ),
 
             'attachment_id' =>
-                0,
+                max(0, $attachmentId),
 
             'error' =>
                 $error,

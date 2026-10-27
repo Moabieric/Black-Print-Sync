@@ -175,6 +175,9 @@ require_once BP_COMMERCE_PATH
 require_once BP_COMMERCE_PATH
     . 'sync/jobs/product-sync-job.php';
 
+require_once BP_COMMERCE_PATH
+    . 'sync/jobs/category-sync-job.php';
+
 
 /*
 |--------------------------------------------------------------------------
