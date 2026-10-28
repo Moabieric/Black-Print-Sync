@@ -145,6 +145,15 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
             );
         }
 
+        if (
+            $lookupStatus === 'lookup_failed'
+        ) {
+
+            return ProjectionResult::failed(
+                'WooCommerce parent identity lookup failed; projection is blocked.'
+            );
+        }
+
         /*
         |--------------------------------------------------------------------------
         | Controlled Parent Creation
@@ -196,6 +205,15 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         | Existing Parent Verification
         |--------------------------------------------------------------------------
         */
+
+        if (
+            \get_post_status($productId) === 'trash'
+        ) {
+
+            return ProjectionResult::failed(
+                'Existing BlackPrint-managed parent is in Trash; projection is blocked.'
+            );
+        }
 
         $existingParent =
             \wc_get_product(
@@ -835,6 +853,15 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         |--------------------------------------------------------------------------
         */
 
+        if (
+            \get_post_status($parentId) === 'trash'
+        ) {
+
+            return ProjectionResult::failed(
+                'Variation parent is in Trash; variation creation is blocked.'
+            );
+        }
+
         $parent =
             \wc_get_product(
                 $parentId
@@ -877,18 +904,48 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
         |--------------------------------------------------------------------------
         |
         | Never create a second BlackPrint-managed variation with the same
-        | canonical fullCode beneath this parent.
+        | canonical fullCode beneath this parent, including one in Trash.
+        | Any lookup error must block creation.
         |
         */
 
+        global $wpdb;
+
+        $variationStatuses =
+            array_values(
+                array_unique(
+                    array_merge(
+                        array_values(
+                            \get_post_stati(
+                                [],
+                                'names'
+                            )
+                        ),
+                        [
+                            'trash',
+                        ]
+                    )
+                )
+            );
+
+        if (
+            $variationStatuses === []
+        ) {
+            return ProjectionResult::failed(
+                'Variation identity safety check failed; no variation was created.'
+            );
+        }
+
+        $wpdb->last_error = '';
+
         $existingVariationIds =
-            get_posts(
+            \get_posts(
                 [
                     'post_type' =>
                         'product_variation',
 
                     'post_status' =>
-                        'any',
+                        $variationStatuses,
 
                     'posts_per_page' =>
                         2,
@@ -898,6 +955,9 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
 
                     'post_parent' =>
                         $parentId,
+
+                    'suppress_filters' =>
+                        true,
 
                     'meta_query' =>
                         [
@@ -932,10 +992,17 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
             );
 
         if (
-            is_array($existingVariationIds)
-            && $existingVariationIds !== []
+            ! is_array($existingVariationIds)
+            || $wpdb->last_error !== ''
         ) {
+            return ProjectionResult::failed(
+                'Variation identity safety check failed; database lookup was not reliable. No variation was created.'
+            );
+        }
 
+        if (
+            $existingVariationIds !== []
+        ) {
             return ProjectionResult::failed(
                 'A BlackPrint-managed WooCommerce variation already exists for full_code: ' .
                 $fullCode
@@ -966,76 +1033,114 @@ final class WooCommerceProjectionExecutor implements ProjectionExecutorInterface
 | Global WooCommerce SKU Conflict Check
 |--------------------------------------------------------------------------
 |
-| WooCommerce SKUs must be globally unique.
-|
-| The BlackPrint-managed variant check above only verifies whether
-| this canonical variant already exists beneath this parent.
-|
-| This additional check detects an SKU owned by another WooCommerce
-| product so the controlled creation test can report the conflict
-| explicitly instead of exposing WooCommerce's generic exception.
+| WooCommerce SKUs must be globally unique. The lookup must include
+| trashed posts because WooCommerce's standard SKU lookup excludes Trash.
+| Any database error must block creation.
 |
 */
 
-$existingSkuProductId =
-    \wc_get_product_id_by_sku(
-        $sku
+global $wpdb;
+
+$skuLookupTable =
+    $wpdb->prefix . 'wc_product_meta_lookup';
+
+$tableExists =
+    $wpdb->get_var(
+        $wpdb->prepare(
+            'SHOW TABLES LIKE %s',
+            $wpdb->esc_like($skuLookupTable)
+        )
     );
 
 if (
-    is_int($existingSkuProductId)
-    && $existingSkuProductId > 0
+    $tableExists !== $skuLookupTable
 ) {
 
-    $existingSkuProduct =
-        \wc_get_product(
-            $existingSkuProductId
-        );
-
-    $existingSkuParentId =
-        $existingSkuProduct
-            ? $existingSkuProduct->get_parent_id()
-            : 0;
-
-    $existingSkuType =
-        $existingSkuProduct
-            ? $existingSkuProduct->get_type()
-            : 'unknown';
-
-    $existingSkuManaged =
-        $existingSkuProduct
-            ? $existingSkuProduct->get_meta(
-                '_blackprint_managed'
-            )
-            : '';
-
-    $existingSkuSupplier =
-        $existingSkuProduct
-            ? $existingSkuProduct->get_meta(
-                '_blackprint_supplier'
-            )
-            : '';
-
-    $existingSkuVariantCode =
-        $existingSkuProduct
-            ? $existingSkuProduct->get_meta(
-                '_blackprint_variant_code'
-            )
-            : '';
-
     return ProjectionResult::failed(
-        'WooCommerce SKU conflict.' .
-        ' SKU="' . $sku . '"' .
-        ' Existing product ID=' . $existingSkuProductId .
-        ' Type=' . $existingSkuType .
-        ' Parent ID=' . $existingSkuParentId .
-        ' BlackPrint managed="' . $existingSkuManaged . '"' .
-        ' Supplier="' . $existingSkuSupplier . '"' .
-        ' Variant code="' . $existingSkuVariantCode . '"'
+        'SKU safety check failed; WooCommerce SKU lookup table is unavailable. No variation was created.'
     );
 }
 
-        /*
+$wpdb->last_error = '';
+
+$allStatusSkuRows =
+    $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT
+                p.ID,
+                p.post_type,
+                p.post_status,
+                p.post_parent,
+                (
+                    SELECT pm.meta_value
+                    FROM {$wpdb->postmeta} AS pm
+                    WHERE pm.post_id = p.ID
+                      AND pm.meta_key = %s
+                    ORDER BY pm.meta_id ASC
+                    LIMIT 1
+                ) AS blackprint_managed,
+                (
+                    SELECT pm.meta_value
+                    FROM {$wpdb->postmeta} AS pm
+                    WHERE pm.post_id = p.ID
+                      AND pm.meta_key = %s
+                    ORDER BY pm.meta_id ASC
+                    LIMIT 1
+                ) AS blackprint_supplier,
+                (
+                    SELECT pm.meta_value
+                    FROM {$wpdb->postmeta} AS pm
+                    WHERE pm.post_id = p.ID
+                      AND pm.meta_key = %s
+                    ORDER BY pm.meta_id ASC
+                    LIMIT 1
+                ) AS blackprint_variant_code
+             FROM {$wpdb->posts} AS p
+             INNER JOIN {$skuLookupTable} AS sku_lookup
+                 ON sku_lookup.product_id = p.ID
+             WHERE p.post_type IN ('product', 'product_variation')
+               AND sku_lookup.sku = %s
+             ORDER BY p.ID ASC
+             LIMIT 2",
+            '_blackprint_managed',
+            '_blackprint_supplier',
+            '_blackprint_variant_code',
+            $sku
+        ),
+        ARRAY_A
+    );
+
+if (
+    ! is_array($allStatusSkuRows)
+    || $wpdb->last_error !== ''
+) {
+
+    return ProjectionResult::failed(
+        'SKU safety check failed; database lookup did not complete cleanly. No variation was created.'
+    );
+}
+
+if (
+    $allStatusSkuRows !== []
+) {
+
+    $conflict =
+        $allStatusSkuRows[0];
+
+    return ProjectionResult::failed(
+        'WooCommerce SKU conflict across all post statuses.' .
+        ' SKU="' . $sku . '"' .
+        ' Existing product ID=' . (int) $conflict['ID'] .
+        ' Type=' . $conflict['post_type'] .
+        ' Status=' . $conflict['post_status'] .
+        ' Parent ID=' . (int) $conflict['post_parent'] .
+        ' BlackPrint managed="' . (string) ($conflict['blackprint_managed'] ?? '') . '"' .
+        ' Supplier="' . (string) ($conflict['blackprint_supplier'] ?? '') . '"' .
+        ' Variant code="' . (string) ($conflict['blackprint_variant_code'] ?? '') . '"'
+    );
+}
+
+/*
         |--------------------------------------------------------------------------
         | Create Variation
         |--------------------------------------------------------------------------
@@ -1300,7 +1405,6 @@ if (
         if (
             ! is_array($identity)
         ) {
-
             return [
                 'status' => 'invalid',
                 'product_id' => null,
@@ -1321,12 +1425,55 @@ if (
             || ! is_string($supplierProductId)
             || $supplierProductId === ''
         ) {
-
             return [
                 'status' => 'invalid',
                 'product_id' => null,
             ];
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Explicit All-Status Identity Lookup
+        |--------------------------------------------------------------------------
+        |
+        | WordPress post_status=any does not include Trash. Query the
+        | registered statuses explicitly, including Trash, so a trashed
+        | BlackPrint parent cannot be mistaken for a missing parent.
+        |
+        | A database error must fail closed. Never create a parent when
+        | identity lookup cannot be trusted.
+        |
+        */
+
+        global $wpdb;
+
+        $statuses =
+            array_values(
+                array_unique(
+                    array_merge(
+                        array_values(
+                            \get_post_stati(
+                                [],
+                                'names'
+                            )
+                        ),
+                        [
+                            'trash',
+                        ]
+                    )
+                )
+            );
+
+        if (
+            $statuses === []
+        ) {
+            return [
+                'status' => 'lookup_failed',
+                'product_id' => null,
+            ];
+        }
+
+        $wpdb->last_error = '';
 
         $products =
             \get_posts(
@@ -1335,17 +1482,16 @@ if (
                         'product',
 
                     'post_status' =>
-                        'any',
+                        $statuses,
 
-                    /*
-                     * We only need enough records to distinguish a unique
-                     * identity match from a duplicate identity condition.
-                     */
                     'posts_per_page' =>
                         2,
 
                     'fields' =>
                         'ids',
+
+                    'suppress_filters' =>
+                        true,
 
                     'meta_query' =>
                         [
@@ -1381,9 +1527,17 @@ if (
 
         if (
             ! is_array($products)
-            || $products === []
+            || $wpdb->last_error !== ''
         ) {
+            return [
+                'status' => 'lookup_failed',
+                'product_id' => null,
+            ];
+        }
 
+        if (
+            $products === []
+        ) {
             return [
                 'status' => 'not_found',
                 'product_id' => null,
@@ -1393,7 +1547,6 @@ if (
         if (
             count($products) > 1
         ) {
-
             return [
                 'status' => 'duplicate',
                 'product_id' => null,
@@ -1405,8 +1558,8 @@ if (
 
         if (
             ! is_numeric($productId)
+            || (int) $productId <= 0
         ) {
-
             return [
                 'status' => 'invalid',
                 'product_id' => null,
